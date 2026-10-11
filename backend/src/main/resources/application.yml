@@ -11,8 +11,15 @@ spring:
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  # 초기 데이터(data.sql) — 기동할 때마다 실행되며 멱등하게 작성한다
+  sql:
+    init:
+      mode: always
+
   jpa:
     open-in-view: false
+    # data.sql(초기 데이터)은 Hibernate가 테이블을 만든 뒤에 실행
+    defer-datasource-initialization: true
     hibernate:
       ddl-auto: none   # 프로필별로 지정 (local: update, prod: validate)
     properties:
