@@ -45,7 +45,7 @@ public class Holding {
     @Column(name = "stock_name", length = 100)
     private String stockName;
 
-    // CODEF 응답으로 확실히 구분될 때만 채운다 — 판별 규칙 확인 전까지 NULL
+    // CODEF는 STOCK/ETF를 구분하지 않아 수집 시 NULL — 시세 수집 단계에서 다른 소스로 채운다 (M-1)
     @Enumerated(EnumType.STRING)
     @Column(name = "security_type", length = 10)
     private SecurityType securityType;

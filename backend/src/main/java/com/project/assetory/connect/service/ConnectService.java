@@ -188,12 +188,13 @@ public class ConnectService {
 
             JsonNode root = objectMapper.readTree(response);
             String resultCode    = root.path("result").path("code").asText();
-            String resultMessage = root.path("result").path("message").asText();
 
-            log.info("[Connect] CODEF result code={} message={}", resultCode, resultMessage);
+            // CODEF 원문 메시지에는 계좌번호 등이 섞일 수 있어 코드만 남긴다
+            log.info("[Connect] CODEF result code={}", resultCode);
 
             if (!"CF-00000".equals(resultCode)) {
-                throw new CodefApiException(resultCode, resultMessage);
+                // 원문 메시지는 예외에도 담지 않는다 — 사용자 문구는 오류 유형에서 나온다
+                throw new CodefApiException(resultCode, "CODEF 실패 응답 code=" + resultCode);
             }
 
             // 7. DB 저장 또는 기존 행 갱신 (UNIQUE(user_id, institution_id, business_type))

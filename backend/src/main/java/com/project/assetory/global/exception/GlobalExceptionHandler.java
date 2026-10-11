@@ -139,7 +139,8 @@ public class GlobalExceptionHandler {
     // CODEF 실패 응답 — 사용자에게는 유형별 메시지와 유형 이름만 준다 (CODEF 원문 메시지는 로그에만)
     @ExceptionHandler(CodefApiException.class)
     public ResponseEntity<ApiResponse<?>> handleCodefApi(CodefApiException e) {
-        log.warn("[CODEF] 실패 응답 code={} type={} message={}", e.getCodefCode(), e.getErrorType(), e.getMessage());
+        // CODEF 원문 메시지는 계좌번호 등이 섞일 수 있어 로그에도 남기지 않는다 (NFR-SE-07)
+        log.warn("[CODEF] 실패 응답 code={} type={}", e.getCodefCode(), e.getErrorType());
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(ApiResponse.error(e.getErrorType().getUserMessage(), e.getErrorType().name()));
     }
@@ -169,7 +170,7 @@ public class GlobalExceptionHandler {
     // 금융기관 사이트 변경/점검으로 조회 불가 (CF-12701, CF-12710) — 503 Service Unavailable
     @ExceptionHandler(CodefInstitutionUnavailableException.class)
     public ResponseEntity<ApiResponse<?>> handleCodefInstitutionUnavailable(CodefInstitutionUnavailableException e) {
-        log.warn("금융기관 조회 불가: {}", e.getMessage());
+        log.warn("[CODEF] 금융기관 조회 불가 code={}", e.getCodefCode());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(ApiResponse.error(e.getMessage(), "INSTITUTION_UNAVAILABLE"));
     }
@@ -209,7 +210,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MailException.class)
     public ResponseEntity<ApiResponse<?>> handleMail(MailException e) {
-        log.error("[Mail] 이메일 발송 실패", e);
+        // 메일 예외 메시지·스택에는 수신 주소가 들어갈 수 있어 예외 종류만 남긴다
+        log.error("[Mail] 이메일 발송 실패 error={}", e.getClass().getSimpleName());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(ApiResponse.error("이메일 발송에 실패했습니다. 서버 메일 설정을 확인해주세요.", "MAIL_SEND_FAILED"));
     }

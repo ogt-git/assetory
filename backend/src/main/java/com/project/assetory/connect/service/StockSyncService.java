@@ -212,7 +212,7 @@ public class StockSyncService {
 
         for (ParsedHolding parsed : parsedHoldings) {
             Holding holding = existing.getOrDefault(parsed.ticker(), Holding.create(asset, parsed.ticker()));
-            // security_type은 판별 규칙 확인 전까지 NULL (추측하지 않음)
+            // security_type은 CODEF가 구분해 주지 않으므로 NULL (M-1 — 시세 수집 단계에서 다른 소스로 채움)
             holding.update(parsed.stockName(), null, parsed.quantity(), parsed.avgBuyPrice(),
                     parsed.currentPrice(), parsed.evalAmount(), parsed.profitLoss(), parsed.profitLossRate());
             if (holding.getId() == null) {

@@ -83,7 +83,8 @@ public class PasswordResetService {
                 authMailSender.sendPasswordResetCode(email, otp);
                 log.info("[PasswordReset] OTP 발송 완료 - emailHash={}", emailHash);
             } catch (RuntimeException e) {
-                log.error("[PasswordReset] OTP 발송 실패 - emailHash={}", emailHash, e);
+                // 메일 예외에는 수신 주소가 들어갈 수 있어 예외 종류만 남긴다
+                log.error("[PasswordReset] OTP 발송 실패 - emailHash={} error={}", emailHash, e.getClass().getSimpleName());
             }
         });
     }

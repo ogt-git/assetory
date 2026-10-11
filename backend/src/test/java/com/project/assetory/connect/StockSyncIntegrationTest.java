@@ -98,7 +98,7 @@ class StockSyncIntegrationTest extends IntegrationTestSupport {
         Holding samsung = holding("005930");
         assertThat(samsung.getQuantity()).isEqualByComparingTo("20");
         assertThat(samsung.getEvalAmount()).isEqualByComparingTo("1100000");
-        assertThat(samsung.getSecurityType()).isNull(); // 판별 규칙 확인 전까지 추측하지 않음
+        assertThat(samsung.getSecurityType()).isNull(); // CODEF는 STOCK/ETF를 구분하지 않음 (M-1)
         assertThat(connectedAccount().getLastSyncedAt()).isNotNull();
 
         SyncJob job = onlyJob();

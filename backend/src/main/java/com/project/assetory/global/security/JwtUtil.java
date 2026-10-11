@@ -96,10 +96,11 @@ public class JwtUtil {
             log.warn("[JWT] 토큰 만료됨 — 클라이언트가 refresh를 요청해야 합니다.");
             return false;
         } catch (JwtException e) {
-            log.warn("[JWT] 토큰 검증 실패: {} - {}", e.getClass().getSimpleName(), e.getMessage());
+            // 예외 메시지에 토큰 헤더·클레임 일부가 들어갈 수 있어 종류만 남긴다
+            log.warn("[JWT] 토큰 검증 실패: {}", e.getClass().getSimpleName());
             return false;
         } catch (Exception e) {
-            log.warn("[JWT] 예상치 못한 오류: {} - {}", e.getClass().getSimpleName(), e.getMessage());
+            log.warn("[JWT] 예상치 못한 오류: {}", e.getClass().getSimpleName());
             return false;
         }
     }

@@ -6,7 +6,7 @@ import java.math.BigDecimal;
 public record ParsedHolding(
         String ticker,
         String stockName,
-        String productType,       // resProductType 원문 — STOCK/ETF 판별 근거로만 보관 (판별 규칙 확인 필요)
+        String productType,       // resProductType 원문 — 해외 종목 판별에 사용. CODEF는 STOCK/ETF를 구분하지 않음 (M-1)
         BigDecimal quantity,
         BigDecimal avgBuyPrice,
         BigDecimal currentPrice,

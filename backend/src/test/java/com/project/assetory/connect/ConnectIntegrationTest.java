@@ -8,6 +8,9 @@ import com.project.assetory.support.IntegrationTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
@@ -187,6 +190,20 @@ class ConnectIntegrationTest extends IntegrationTestSupport {
 
         mockMvc.perform(get("/api/codef/connections").header("Authorization", "Bearer " + at))
                 .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    @DisplayName("CODEF 실패 원문(계좌번호 포함)은 로그에도 남지 않는다 — 코드만 기록 (NFR-SE-07)")
+    void codefFailure_rawMessageNotLogged(CapturedOutput output) throws Exception {
+        String at = signupAndGetAccessToken();
+        when(codefApiClient.createAccount(any()))
+                .thenReturn(codefResponse("CF-12800", "계좌 98765432101 비밀번호 오류", null));
+
+        connect(at, SAMSUNG, "ST").andExpect(status().isBadGateway());
+
+        assertThat(output.getAll()).contains("CF-12800")
+                .doesNotContain("98765432101").doesNotContain("비밀번호 오류");
     }
 
     @Test
