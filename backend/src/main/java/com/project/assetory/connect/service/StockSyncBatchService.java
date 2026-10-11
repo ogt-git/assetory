@@ -8,12 +8,13 @@ import com.project.assetory.connect.exception.CodefSyncLockConflictException;
 import com.project.assetory.connect.repository.ConnectedAccountRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
 // 정상(ACTIVE) 증권 연동 전체 동기화 — 계정마다 결과는 sync_jobs에 남고, 한 계정이 실패해도 나머지는 계속한다
+// 실행 트리거는 StockSyncBatchScheduler (기본 비활성). 일별 자산 기록 배치가 생기면 이 메서드를 호출하는 구조로 확장한다
+// 재시도는 StockSyncService 안에서만 한다 (배치에서 다시 감싸면 호출 횟수가 곱해짐). 실패해도 연동을 비활성화하지 않는다 (D-12)
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -24,7 +25,6 @@ public class StockSyncBatchService {
     private final ConnectedAccountRepository connectedAccountRepository;
     private final StockSyncService stockSyncService;
 
-    @Scheduled(cron = "0 0 2 * * *", zone = "Asia/Seoul")
     public BatchResult syncAllActive() {
         List<Long> ids = connectedAccountRepository.findIdsByBusinessTypeAndStatus(BusinessType.ST, ConnectedAccountStatus.ACTIVE);
         log.info("[Batch] CODEF 동기화 시작 — 활성 연동 수={}", ids.size());

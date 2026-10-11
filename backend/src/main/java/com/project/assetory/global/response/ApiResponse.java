@@ -32,4 +32,9 @@ public class ApiResponse<T> {
     public static <T> ApiResponse<T> error(String message, String errorCode) {
         return new ApiResponse<>(false, null, message, errorCode);
     }
+
+    // 실패 응답에도 클라이언트가 쓸 값이 있을 때 (재요청 가능 시간, 계정별 결과 등)
+    public static <T> ApiResponse<T> error(String message, String errorCode, T data) {
+        return new ApiResponse<>(false, data, message, errorCode);
+    }
 }

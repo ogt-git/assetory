@@ -84,16 +84,16 @@ public class ConnectController {
         return ResponseEntity.ok(ApiResponse.success(null, "연동이 해지되었습니다."));
     }
 
-    // 증권 자산 수동 새로고침 — 5분에 한 번
+    // 증권 자산 수동 새로고침 — 5분에 한 번 (쿨다운 중 429 + 남은 초, 이미 동기화 중 409)
     @PostMapping("/sync/stock")
     public ResponseEntity<ApiResponse<StockRefreshResponse>> refreshStock(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         StockRefreshResponse result = stockRefreshService.refresh(userId);
         if (result.hasFailure()) {
+            // 실패해도 계정별 결과(성공한 계정, 실패 사유)를 함께 돌려준다
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(ApiResponse.error("일부 증권 계좌 동기화에 실패했습니다.", ErrorCode.CODEF_SYNC_FAILED.name()));
+                    .body(ApiResponse.error("일부 증권 계좌 동기화에 실패했습니다.", ErrorCode.CODEF_SYNC_FAILED.name(), result));
         }
-        String message = result.accounts().isEmpty() ? "업데이트된 자산 정보가 없습니다." : "자산 정보 동기화가 완료되었습니다.";
-        return ResponseEntity.ok(ApiResponse.success(result, message));
+        return ResponseEntity.ok(ApiResponse.success(result, "자산 정보 동기화가 완료되었습니다."));
     }
 }

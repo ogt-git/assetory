@@ -56,6 +56,7 @@ public class StockSyncService {
 
     static final String STOCK_PRODUCT_URL = "/v1/kr/stock/a/account/financial-assets";
     static final String SYNC_LOCK_PREFIX = "codef:lock:";
+    // 최대 동기화 시간보다 길게: CODEF 호출(연결 10초 + 읽기 10초) × 3회 + 토큰 발급 1회 + 대기 1·2초 ≈ 83초 < 300초
     private static final Duration SYNC_LOCK_TTL = Duration.ofSeconds(300);
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final int MAX_ATTEMPTS = 3;

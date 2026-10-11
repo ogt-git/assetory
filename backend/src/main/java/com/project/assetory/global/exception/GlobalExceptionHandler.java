@@ -8,11 +8,14 @@ import com.project.assetory.connect.exception.CodefAuthException;
 import com.project.assetory.connect.exception.CodefConnectInProgressException;
 import com.project.assetory.connect.exception.CodefInstitutionUnavailableException;
 import com.project.assetory.connect.exception.CodefSyncException;
+import com.project.assetory.connect.exception.CodefSyncLockConflictException;
+import com.project.assetory.connect.exception.RefreshCooldownException;
 import com.project.assetory.connect.exception.CodefUnsupportedOperationException;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mail.MailException;
@@ -25,6 +28,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -95,6 +99,22 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<?>> handleTooManyRequests(TooManyRequestsException e) {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .body(ApiResponse.error(e.getMessage(), ErrorCode.TOO_MANY_REQUESTS.name()));
+    }
+
+    // 수동 새로고침 쿨다운 — 남은 초를 Retry-After 헤더와 본문에 함께 준다
+    @ExceptionHandler(RefreshCooldownException.class)
+    public ResponseEntity<ApiResponse<?>> handleRefreshCooldown(RefreshCooldownException e) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(e.getRetryAfterSeconds()))
+                .body(ApiResponse.error(e.getMessage(), "CODEF_COOLDOWN_ACTIVE",
+                        Map.of("retryAfterSeconds", e.getRetryAfterSeconds())));
+    }
+
+    // 같은 연동 계정 동기화가 이미 진행 중 — 409 Conflict
+    @ExceptionHandler(CodefSyncLockConflictException.class)
+    public ResponseEntity<ApiResponse<?>> handleSyncLockConflict(CodefSyncLockConflictException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(e.getMessage(), "CODEF_SYNC_IN_PROGRESS"));
     }
 
     @ExceptionHandler(CodefAuthException.class)

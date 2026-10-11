@@ -58,6 +58,11 @@ assetory:
   mail:
     from: ${MAIL_FROM:${MAIL_USERNAME:}}
     log-only: false
+  # 증권 동기화 배치 — 기본 비활성. cron은 영업일 16:00 (04 §2)
+  sync:
+    batch:
+      enabled: ${ASSETORY_SYNC_BATCH_ENABLED:false}
+      cron: ${ASSETORY_SYNC_BATCH_CRON:0 0 16 * * MON-FRI}
 
 # JWT — 서명 키는 32바이트 이상. 만료는 FR-AU-02 (AT 30분, RT 14일)
 jwt:

@@ -37,6 +37,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -224,6 +229,90 @@ class StockSyncIntegrationTest extends IntegrationTestSupport {
         } finally {
             redis.delete("codef:lock:" + connectedAccountId);
         }
+    }
+
+    @Test
+    @DisplayName("같은 계정에 동기화 2개를 동시에 실행하면 1개만 실행된다 — CODEF 1회 호출, 작업 기록 1행")
+    void concurrentSyncRunsOnce() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        String body = fixture("stock-financial-assets-success.json");
+        when(codefApiClient.requestProduct(anyString(), any())).thenAnswer(inv -> {
+            entered.countDown();
+            release.await(10, TimeUnit.SECONDS); // 첫 번째 실행이 락을 쥔 채 CODEF 응답을 기다리는 상황
+            return body;
+        });
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<SyncResult> first = executor.submit(() -> stockSyncService.sync(connectedAccountId, SyncJobType.HOLDING));
+            assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
+
+            assertThatThrownBy(() -> stockSyncService.sync(connectedAccountId, SyncJobType.HOLDING))
+                    .isInstanceOf(CodefSyncLockConflictException.class);
+
+            release.countDown();
+            assertThat(first.get(10, TimeUnit.SECONDS).status()).isEqualTo(SyncJobStatus.SUCCESS);
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+        verify(codefApiClient, times(1)).requestProduct(anyString(), any());
+        assertThat(syncJobRepository.findAllByConnectedAccountIdOrderByIdAsc(connectedAccountId)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("락 충돌로 거절돼도 다른 실행이 잡은 락은 지우지 않는다")
+    void conflictKeepsOthersLock() {
+        String lockKey = "codef:lock:" + connectedAccountId;
+        redis.opsForValue().set(lockKey, "other-worker");
+        try {
+            assertThatThrownBy(() -> stockSyncService.sync(connectedAccountId, SyncJobType.HOLDING))
+                    .isInstanceOf(CodefSyncLockConflictException.class);
+            assertThat(redis.opsForValue().get(lockKey)).isEqualTo("other-worker");
+        } finally {
+            redis.delete(lockKey);
+        }
+    }
+
+    @Test
+    @DisplayName("내 락이 만료되고 다른 실행이 락을 잡았다면, 내 동기화가 끝나도 그 락을 지우지 않는다 (소유자 확인)")
+    void finishingSyncKeepsLockTakenByAnother() throws Exception {
+        String lockKey = "codef:lock:" + connectedAccountId;
+        String body = fixture("stock-financial-assets-success.json");
+        when(codefApiClient.requestProduct(anyString(), any())).thenAnswer(inv -> {
+            redis.opsForValue().set(lockKey, "worker-b"); // TTL 만료 후 다른 실행이 새로 잡은 상황
+            return body;
+        });
+        try {
+            stockSyncService.sync(connectedAccountId, SyncJobType.HOLDING);
+            assertThat(redis.opsForValue().get(lockKey)).isEqualTo("worker-b");
+        } finally {
+            redis.delete(lockKey);
+        }
+    }
+
+    @Test
+    @DisplayName("일시 오류(CF-09999)는 재시도 가능 횟수(3회)까지만 호출하고 FAILED, 연동 상태는 유지")
+    void transientErrorRetriedUpToLimit() throws Exception {
+        respondWith("{\"result\":{\"code\":\"CF-09999\",\"message\":\"x\"},\"data\":{}}");
+
+        SyncResult result = stockSyncService.sync(connectedAccountId, SyncJobType.HOLDING);
+
+        assertThat(result.status()).isEqualTo(SyncJobStatus.FAILED);
+        assertThat(result.errorType()).isEqualTo(CodefErrorType.TRANSIENT_ERROR);
+        verify(codefApiClient, times(3)).requestProduct(anyString(), any());
+        assertThat(connectedAccount().getStatus()).isEqualTo(ConnectedAccountStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("재시도 불가 유형(기관 점검 CF-12701)은 재시도하지 않는다")
+    void doesNotRetryNonRetryable() throws Exception {
+        respondWith("{\"result\":{\"code\":\"CF-12701\",\"message\":\"x\"},\"data\":{}}");
+
+        stockSyncService.sync(connectedAccountId, SyncJobType.HOLDING);
+
+        verify(codefApiClient, times(1)).requestProduct(anyString(), any());
     }
 
     @Test
