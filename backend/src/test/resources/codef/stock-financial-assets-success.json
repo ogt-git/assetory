@@ -1,0 +1,58 @@
+{
+  "result": {"code": "CF-00000", "message": "성공", "extraMessage": ""},
+  "data": {
+    "resAccount": "00000000000",
+    "resDepositReceived": "1,500,000",
+    "resItemList": [
+      {
+        "resProductType": "주식",
+        "resItemName": "삼성전자",
+        "resItemCode": "005930",
+        "resQuantity": "20",
+        "resPresentAmt": "55,000",
+        "resAvgPresentAmt": "50,000",
+        "resPurchaseAmount": "1,000,000",
+        "resValuationAmt": "1,100,000",
+        "resValuationPL": "100,000",
+        "resEarningsRate": "10.00",
+        "resAccountCurrency": "KRW"
+      },
+      {
+        "resProductType": "주식",
+        "resItemName": "SK하이닉스",
+        "resItemCode": "000660",
+        "resQuantity": "4",
+        "resPresentAmt": "",
+        "resAvgPresentAmt": "",
+        "resPurchaseAmount": "800000",
+        "resValuationAmt": "880000",
+        "resValuationPL": "80000",
+        "resEarningsRate": "10",
+        "resAccountCurrency": ""
+      },
+      {
+        "resProductType": "외화증권",
+        "resItemName": "MARSH & MCLENNAN COMPANIES INC",
+        "resItemCode": "MRSH",
+        "resQuantity": "1",
+        "resPresentAmt": "165.78",
+        "resAvgPresentAmt": "161.04",
+        "resPurchaseAmount": "",
+        "resValuationAmt": "252053",
+        "resValuationPL": "",
+        "resEarningsRate": "3.56",
+        "resAccountCurrency": "USD"
+      },
+      {
+        "resProductType": "주식",
+        "resItemName": "카카오",
+        "resItemCode": "035720",
+        "resQuantity": "0",
+        "resPurchaseAmount": "0",
+        "resValuationAmt": "0",
+        "resValuationPL": "0",
+        "resEarningsRate": "0"
+      }
+    ]
+  }
+}

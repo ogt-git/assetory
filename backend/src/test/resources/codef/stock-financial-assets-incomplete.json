@@ -1,0 +1,17 @@
+{
+  "result": {"code": "CF-00000", "message": "성공"},
+  "data": {
+    "resAccount": "00000000000",
+    "resDepositReceived": "500000",
+    "resItemList": [
+      {
+        "resItemName": "삼성전자", "resItemCode": "005930", "resQuantity": "20",
+        "resValuationAmt": "1100000", "resPurchaseAmount": "1000000", "resValuationPL": "100000"
+      },
+      {
+        "resResultCode": "0",
+        "resItemName": "조회 실패 종목", "resItemCode": "000660"
+      }
+    ]
+  }
+}
