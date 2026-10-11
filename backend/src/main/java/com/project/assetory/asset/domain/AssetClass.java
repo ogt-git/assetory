@@ -5,5 +5,13 @@ package com.project.assetory.asset.domain;
 public enum AssetClass {
     SECURITIES,
     DEPOSIT,
-    CASH
+    CASH;
+
+    // 자산 행의 asset_class — 증권 계좌 행은 예수금이므로 CASH (종목 평가액은 holdings로 SECURITIES 집계)
+    public static AssetClass of(AssetType assetType) {
+        return switch (assetType) {
+            case DEPOSIT, SAVINGS -> DEPOSIT;
+            case CASH, CHECKING, SECURITIES -> CASH;
+        };
+    }
 }

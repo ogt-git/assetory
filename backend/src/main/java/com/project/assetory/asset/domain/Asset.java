@@ -97,6 +97,29 @@ public class Asset {
         return asset;
     }
 
+    // 수기 자산 — 연동 계정·기관 없음 (D-23)
+    public static Asset manual(User user, AssetType assetType, String name, BigDecimal balance) {
+        Asset asset = new Asset();
+        asset.user = user;
+        asset.assetType = assetType;
+        asset.assetClass = AssetClass.of(assetType);
+        asset.name = name;
+        asset.balance = balance;
+        asset.active = true;
+        return asset;
+    }
+
+    public void updateManual(AssetType assetType, String name, BigDecimal balance) {
+        this.assetType = assetType;
+        this.assetClass = AssetClass.of(assetType);
+        this.name = name;
+        this.balance = balance;
+    }
+
+    public boolean isManual() {
+        return connectedAccount == null;
+    }
+
     // 재연결 — 계좌번호를 바꿀 수 있고 다시 활성화
     public void relink(String accountNumber) {
         changeAccountNumber(accountNumber);
