@@ -38,11 +38,19 @@ spring:
           auth: true
           starttls:
             enable: true
+          # 외부 API 타임아웃 10초 (NFR-PF-05)
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
 
 # 암호화 키 — Base64 인코딩된 32바이트. 없거나 형식이 틀리면 기동 실패 (AesEncryptionUtil)
 assetory:
   crypto:
     aes-key: ${ASSETORY_AES_KEY:}
+  # 인증 메일 발신 주소 — 없으면 MAIL_USERNAME 사용. local에서 log-only: true면 실제 발송 대신 로그 출력
+  mail:
+    from: ${MAIL_FROM:${MAIL_USERNAME:}}
+    log-only: false
 
 # JWT — 서명 키는 32바이트 이상. 만료는 FR-AU-02 (AT 30분, RT 14일)
 jwt:

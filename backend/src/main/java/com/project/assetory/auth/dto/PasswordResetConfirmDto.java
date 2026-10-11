@@ -17,7 +17,9 @@ public class PasswordResetConfirmDto {
     @Pattern(regexp = "\\d{6}", message = "인증코드는 6자리 숫자여야 합니다.")
     private String otp;
 
+    // 새 비밀번호에도 회원가입과 같은 정책(FR-AU-01) 적용
     @NotBlank
-    @Size(min = 8, message = "비밀번호는 8자 이상이어야 합니다.")
+    @Size(min = PasswordPolicy.MIN_LENGTH, max = PasswordPolicy.MAX_LENGTH, message = PasswordPolicy.LENGTH_MESSAGE)
+    @Pattern(regexp = PasswordPolicy.REGEX, message = PasswordPolicy.REGEX_MESSAGE)
     private String newPassword;
 }

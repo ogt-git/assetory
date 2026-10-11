@@ -83,7 +83,8 @@ public class AuthController {
     @PostMapping("/password-reset/request")
     public ResponseEntity<ApiResponse<Void>> requestPasswordReset(@Valid @RequestBody PasswordResetRequestDto request) {
         passwordResetService.sendOtp(request.getEmail());
-        return ResponseEntity.ok(ApiResponse.success(null, "인증코드가 이메일로 발송되었습니다."));
+        // 가입 여부와 관계없이 같은 응답 (계정 존재 여부 노출 방지)
+        return ResponseEntity.ok(ApiResponse.success(null, "입력한 이메일로 가입된 계정이 있으면 인증코드가 발송됩니다."));
     }
 
     @PostMapping("/password-reset/confirm")

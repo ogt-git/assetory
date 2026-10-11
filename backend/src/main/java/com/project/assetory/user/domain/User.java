@@ -49,6 +49,10 @@ public class User extends BaseTimeEntity {
     @Column(name = "withdrawn_at")
     private LocalDateTime withdrawnAt;
 
+    // 가입 전 이메일 인증을 거치므로 가입 시각에 채워진다
+    @Column(name = "email_verified_at")
+    private LocalDateTime emailVerifiedAt;
+
     @Column(name = "terms_version", nullable = false, length = 20)
     private String termsVersion;
 
@@ -66,6 +70,10 @@ public class User extends BaseTimeEntity {
 
     public boolean isActive() {
         return status == UserStatus.ACTIVE;
+    }
+
+    public void markEmailVerified(LocalDateTime verifiedAt) {
+        this.emailVerifiedAt = verifiedAt;
     }
 
     public void updatePasswordHash(String passwordHash) {

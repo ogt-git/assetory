@@ -1,20 +1,14 @@
 package com.project.assetory.auth;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.assetory.support.IntegrationTestSupport;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletResponse;
-import org.springframework.test.web.servlet.MockMvc;
-
-import java.util.Map;
-import java.util.UUID;
+import org.springframework.test.web.servlet.ResultActions;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -24,31 +18,26 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class AuthIntegrationTest extends IntegrationTestSupport {
 
-    private static final String PASSWORD = "Passw0rd!";
-
-    @Autowired MockMvc mockMvc;
-    @Autowired ObjectMapper objectMapper;
-
     // ---------- 회원가입 ----------
 
     @Test
     @DisplayName("회원가입 성공")
     void signup_success() throws Exception {
-        signup(uniqueEmail(), PASSWORD).andExpect(status().isOk())
+        String email = uniqueEmail();
+        signup(email, PASSWORD, verifyEmail(email)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("회원가입이 완료되었습니다."));
     }
 
     @Test
-    @DisplayName("회원가입: 이미 가입한 이메일 → 409 (대소문자만 다른 경우 포함)")
+    @DisplayName("이미 가입한 이메일은 인증코드 요청 단계에서 409 (대소문자만 다른 경우 포함)")
     void signup_duplicateEmail() throws Exception {
-        String email = uniqueEmail();
-        signup(email, PASSWORD).andExpect(status().isOk());
+        String email = signupNew();
 
-        signup(email, PASSWORD)
+        requestEmailVerify(email)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.errorCode").value("DUPLICATE_EMAIL"));
-        signup(email.toUpperCase(), PASSWORD)
+        requestEmailVerify(email.toUpperCase())
                 .andExpect(status().isConflict());
 
         // 대문자로 로그인해도 같은 계정
@@ -59,7 +48,8 @@ class AuthIntegrationTest extends IntegrationTestSupport {
     @ValueSource(strings = {"Pa0!", "password1", "password!", "12345678!", "Passw0rd"})
     @DisplayName("회원가입: 비밀번호 정책 위반 (8자 미만, 특수문자·숫자·영문 누락) → 400")
     void signup_passwordPolicy(String password) throws Exception {
-        signup(uniqueEmail(), password)
+        String email = uniqueEmail();
+        signup(email, password, verifyEmail(email))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"));
     }
@@ -69,8 +59,7 @@ class AuthIntegrationTest extends IntegrationTestSupport {
     @Test
     @DisplayName("로그인 성공 → ApiResponse.data에 AT, RT는 HttpOnly 쿠키 (본문에는 RT 없음)")
     void login_success() throws Exception {
-        String email = uniqueEmail();
-        signup(email, PASSWORD);
+        String email = signupNew();
 
         MockHttpServletResponse response = login(email, PASSWORD).andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
@@ -89,8 +78,7 @@ class AuthIntegrationTest extends IntegrationTestSupport {
     @Test
     @DisplayName("로그인 실패: 비밀번호 불일치·미가입 이메일 → 401 (같은 메시지)")
     void login_failure() throws Exception {
-        String email = uniqueEmail();
-        signup(email, PASSWORD);
+        String email = signupNew();
 
         login(email, "Wrong0rd!").andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("AUTH_FAILED"));
@@ -192,31 +180,7 @@ class AuthIntegrationTest extends IntegrationTestSupport {
 
     // ---------- helpers ----------
 
-    private String uniqueEmail() {
-        return "user-" + UUID.randomUUID().toString().substring(0, 8) + "@example.com";
-    }
-
-    private String signupNew() throws Exception {
-        String email = uniqueEmail();
-        signup(email, PASSWORD).andExpect(status().isOk());
-        return email;
-    }
-
-    private org.springframework.test.web.servlet.ResultActions signup(String email, String password) throws Exception {
-        return mockMvc.perform(post("/api/auth/signup")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(Map.of(
-                        "email", email, "password", password,
-                        "nickname", "테스터", "termsVersion", "2026-10"))));
-    }
-
-    private org.springframework.test.web.servlet.ResultActions login(String email, String password) throws Exception {
-        return mockMvc.perform(post("/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(Map.of("email", email, "password", password))));
-    }
-
-    private org.springframework.test.web.servlet.ResultActions refresh(String refreshToken) throws Exception {
+    private ResultActions refresh(String refreshToken) throws Exception {
         return mockMvc.perform(post("/api/auth/refresh").cookie(new Cookie("refreshToken", refreshToken)));
     }
 
