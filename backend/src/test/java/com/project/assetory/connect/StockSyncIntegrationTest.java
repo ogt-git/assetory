@@ -196,6 +196,25 @@ class StockSyncIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("예수금이 빠진 응답 → FAILED(UNKNOWN), 예수금·종목 모두 부분 갱신하지 않음, 연동 상태 유지")
+    void missingDepositFailsWithoutPartialUpdate() throws Exception {
+        respondWith(fixture("stock-financial-assets-success.json"));
+        stockSyncService.sync(connectedAccountId, SyncJobType.HOLDING);
+
+        respondWith("{\"result\":{\"code\":\"CF-00000\",\"message\":\"성공\"},\"data\":{\"resDepositReceived\":\"\","
+                + "\"resItemList\":[{\"resItemName\":\"삼성전자\",\"resItemCode\":\"005930\",\"resQuantity\":\"99\","
+                + "\"resValuationAmt\":\"9900000\"}]}}");
+        SyncResult result = stockSyncService.sync(connectedAccountId, SyncJobType.HOLDING);
+
+        assertThat(result.status()).isEqualTo(SyncJobStatus.FAILED);
+        assertThat(result.errorType()).isEqualTo(CodefErrorType.UNKNOWN);
+        assertThat(asset().getBalance()).isEqualByComparingTo("1500000");
+        assertThat(holding("005930").getQuantity()).isEqualByComparingTo("20");
+        assertThat(holdings()).hasSize(2);
+        assertThat(connectedAccount().getStatus()).isEqualTo(ConnectedAccountStatus.ACTIVE);
+    }
+
+    @Test
     @DisplayName("통신 실패(재시도 가능)는 재시도 후 성공하면 SUCCESS — CODEF 2회 호출")
     void retriesNetworkError() throws Exception {
         when(codefApiClient.requestProduct(anyString(), any()))

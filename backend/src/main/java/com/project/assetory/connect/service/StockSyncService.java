@@ -188,9 +188,8 @@ public class StockSyncService {
             LocalDateTime now = LocalDateTime.now(KST);
             if (parsed != null) {
                 Asset asset = assetRepository.findById(assetId).orElseThrow();
-                if (parsed.depositReceived() != null) {
-                    asset.updateBalance(parsed.depositReceived());
-                }
+                // 완전한 응답만 여기 온다 — 예수금이 빠진 응답은 FAILED로 끝나고 기존 값을 오늘 값으로 쓰지 않는다
+                asset.updateBalance(parsed.depositReceived());
                 reconcileHoldings(asset, parsed.holdings());
             }
             connectedAccountRepository.findById(connectedAccountId).orElseThrow().markSynced(now);

@@ -3,6 +3,7 @@ package com.project.assetory.global.exception;
 import com.project.assetory.global.response.ApiResponse;
 import com.project.assetory.connect.exception.CodefAccountNotFoundException;
 import com.project.assetory.connect.exception.CodefAlreadyConnectedException;
+import com.project.assetory.connect.codef.CodefErrorType;
 import com.project.assetory.connect.exception.CodefApiException;
 import com.project.assetory.connect.exception.CodefAuthException;
 import com.project.assetory.connect.exception.CodefConnectInProgressException;
@@ -10,7 +11,6 @@ import com.project.assetory.connect.exception.CodefInstitutionUnavailableExcepti
 import com.project.assetory.connect.exception.CodefSyncException;
 import com.project.assetory.connect.exception.CodefSyncLockConflictException;
 import com.project.assetory.connect.exception.RefreshCooldownException;
-import com.project.assetory.connect.exception.CodefUnsupportedOperationException;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
@@ -141,16 +141,11 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<?>> handleCodefApi(CodefApiException e) {
         // CODEF 원문 메시지는 계좌번호 등이 섞일 수 있어 로그에도 남기지 않는다 (NFR-SE-07)
         log.warn("[CODEF] 실패 응답 code={} type={}", e.getCodefCode(), e.getErrorType());
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+        // 기관·로그인 방식 미지원(CF-12030·12040·12050)은 요청 조합 문제라 422 — 사전 차단 없이 CODEF 응답으로만 안내 (S-1)
+        HttpStatus status = e.getErrorType() == CodefErrorType.UNSUPPORTED_OPERATION
+                ? HttpStatus.UNPROCESSABLE_ENTITY : HttpStatus.BAD_GATEWAY;
+        return ResponseEntity.status(status)
                 .body(ApiResponse.error(e.getErrorType().getUserMessage(), e.getErrorType().name()));
-    }
-
-    // 상품/로그인 방식 조합 미지원 (CF-12030, CF-12040, CF-12050, 사전 차단 포함) — 422 Unprocessable Entity
-    @ExceptionHandler(CodefUnsupportedOperationException.class)
-    public ResponseEntity<ApiResponse<?>> handleCodefUnsupportedOperation(CodefUnsupportedOperationException e) {
-        log.warn("[CodefUnsupportedOperation] code={} message={}", e.getCodefCode(), e.getMessage());
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
-                .body(ApiResponse.error(e.getMessage(), ErrorCode.CODEF_UNSUPPORTED_OPERATION.name()));
     }
 
     // 이미 활성 연동이 존재 — 409 Conflict

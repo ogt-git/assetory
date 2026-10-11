@@ -54,6 +54,37 @@ class AuthIntegrationTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"));
     }
 
+    @Test
+    @DisplayName("회원가입: 64자(ASCII 64바이트)는 허용, 65자는 400 — 입력을 자르지 않고 그대로 로그인된다")
+    void signup_passwordMaxLength() throws Exception {
+        String max = "Aa1!" + "x".repeat(60); // 64자
+        String email = uniqueEmail();
+        signup(email, max, verifyEmail(email)).andExpect(status().isOk());
+        login(email, max).andExpect(status().isOk());
+        login(email, max.substring(0, 63)).andExpect(status().isUnauthorized());
+
+        String over = uniqueEmail();
+        signup(over, max + "x", verifyEmail(over))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    @DisplayName("회원가입: 64자 이하라도 UTF-8 72바이트를 넘으면 400 (한글 30자 + a1! = 33자, 93바이트)")
+    void signup_passwordOver72Bytes() throws Exception {
+        String email = uniqueEmail();
+        signup(email, "가".repeat(30) + "a1!", verifyEmail(email))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    @DisplayName("로그인: 72바이트를 넘는 비밀번호도 처리되지 않은 예외 없이 401")
+    void login_overlongPasswordIs401() throws Exception {
+        String email = signupNew();
+        login(email, "A1!" + "x".repeat(100)).andExpect(status().isUnauthorized());
+    }
+
     // ---------- 로그인 ----------
 
     @Test

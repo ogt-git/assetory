@@ -69,6 +69,61 @@ class StockAssetParserTest {
         assertThat(parsed.invalidCount()).isEqualTo(1);
     }
 
+    @ParameterizedTest(name = "예수금 \"{0}\" → 응답 불완전")
+    @CsvSource(value = {"''", "'-'", "'abc'"})
+    @DisplayName("예수금이 비었거나 해석할 수 없으면 응답 불완전 (0으로 채우지 않음)")
+    void missingDepositIsIncomplete(String deposit) throws Exception {
+        ParsedStockAccount parsed = StockAssetParser.parse(
+                MAPPER.readTree("{\"resDepositReceived\":\"" + deposit + "\",\"resItemList\":[]}"), "0240");
+
+        assertThat(parsed.complete()).isFalse();
+        assertThat(parsed.depositReceived()).isNull();
+    }
+
+    @Test
+    @DisplayName("예수금 필드가 아예 없어도 응답 불완전, 정상 숫자 0원은 유효")
+    void depositFieldAbsentOrZero() throws Exception {
+        assertThat(StockAssetParser.parse(MAPPER.readTree("{\"resItemList\":[]}"), "0240").complete()).isFalse();
+
+        ParsedStockAccount zero = StockAssetParser.parse(
+                MAPPER.readTree("{\"resDepositReceived\":\"0\",\"resItemList\":[]}"), "0240");
+        assertThat(zero.complete()).isTrue();
+        assertThat(zero.depositReceived()).isEqualByComparingTo("0");
+    }
+
+    @ParameterizedTest(name = "{0} 누락 → 응답 불완전")
+    @CsvSource(value = {"resQuantity", "resValuationAmt"})
+    @DisplayName("종목의 수량·평가금액이 없으면 0으로 채우지 않고 응답 불완전")
+    void missingRequiredItemField(String field) throws Exception {
+        String item = "{\"resItemCode\":\"005930\",\"resItemName\":\"삼성전자\",\"resQuantity\":\"10\","
+                + "\"resValuationAmt\":\"700000\",\"resPurchaseAmount\":\"600000\"}";
+        JsonNode data = MAPPER.readTree("{\"resDepositReceived\":\"100\",\"resItemList\":[" + item + "]}");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) data.path("resItemList").get(0)).remove(field);
+
+        ParsedStockAccount parsed = StockAssetParser.parse(data, "0240");
+
+        assertThat(parsed.complete()).isFalse();
+        assertThat(parsed.invalidCount()).isEqualTo(1);
+        assertThat(parsed.holdings()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("선택 값(매입·손익·수익률)이 없고 역산도 불가하면 0이 아니라 null로 둔다")
+    void optionalFieldsStayNull() throws Exception {
+        JsonNode data = MAPPER.readTree("{\"resDepositReceived\":\"100\",\"resItemList\":[{\"resItemCode\":\"005930\","
+                + "\"resItemName\":\"삼성전자\",\"resQuantity\":\"10\",\"resValuationAmt\":\"700000\"}]}");
+
+        ParsedStockAccount parsed = StockAssetParser.parse(data, "0240");
+
+        assertThat(parsed.complete()).isTrue();
+        ParsedHolding holding = parsed.holdings().get(0);
+        assertThat(holding.purchaseAmount()).isNull();
+        assertThat(holding.profitLoss()).isNull();
+        assertThat(holding.profitLossRate()).isNull();
+        assertThat(holding.avgBuyPrice()).isNull();
+        assertThat(holding.evalAmount()).isEqualByComparingTo("700000");
+    }
+
     @Test
     @DisplayName("종목 목록이 배열이 아니면 응답 불완전")
     void missingItemList() throws Exception {

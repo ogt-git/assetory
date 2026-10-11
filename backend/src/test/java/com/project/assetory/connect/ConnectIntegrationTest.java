@@ -16,7 +16,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.ResultActions;
 
 import java.util.HashMap;
@@ -232,35 +231,28 @@ class ConnectIntegrationTest extends IntegrationTestSupport {
                 .containsEntry("organization", SAMSUNG);
     }
 
-    @ParameterizedTest(name = "{0} + ID/PW → 422")
-    @ValueSource(strings = {"0225", "0243", "0262", "0264", "0270", "0279", "0287"})
-    @DisplayName("ID/PW 방식 미지원 증권사(CODEF 목록 내 코드) → CODEF 호출 전 422")
-    void idPwUnsupportedSecurities_blocked(String org) throws Exception {
-        assertThat(InstitutionSeedTest.CODEF_SECURITIES).containsKey(org);
+    @Test
+    @DisplayName("미확인 목록으로 사전 차단하지 않는다 — 원본에서 막던 조합(0243 + ID/PW)도 CODEF에 연결을 요청한다 (S-1)")
+    void noPreBlockByUnverifiedList() throws Exception {
         String at = signupAndGetAccessToken();
 
-        connect(at, org, "ST")
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.errorCode").value("CODEF_UNSUPPORTED_OPERATION"));
-        verify(codefApiClient, never()).createAccount(any());
+        connect(at, "0243", "ST").andExpect(status().isOk());
+        verify(codefApiClient, times(1)).createAccount(any());
     }
 
-    @Test
-    @DisplayName("인증서 방식 미지원 증권사(0227 다올투자증권) → CODEF 호출 전 422")
-    void certUnsupportedSecurities_blocked() throws Exception {
-        assertThat(InstitutionSeedTest.CODEF_SECURITIES).containsKey("0227");
+    @ParameterizedTest(name = "{0} → 422")
+    @ValueSource(strings = {"CF-12030", "CF-12040", "CF-12050"})
+    @DisplayName("CODEF가 미지원 오류 코드를 주면 422 + 미지원 안내, 연동 행을 만들지 않음 (인증 실패로 보지 않음)")
+    void codefUnsupported_returns422(String code) throws Exception {
         String at = signupAndGetAccessToken();
+        when(codefApiClient.createAccount(any())).thenReturn(codefResponse(code, "x", null));
 
-        mockMvc.perform(multipart("/api/codef/connect")
-                        .file(new MockMultipartFile("derFile", "signCert.der", "application/octet-stream", new byte[]{1}))
-                        .file(new MockMultipartFile("keyFile", "signPri.key", "application/octet-stream", new byte[]{2}))
-                        .param("organization", "0227")
-                        .param("businessType", "ST")
-                        .param("loginType", "0")
-                        .param("password", "cert-password")
-                        .header("Authorization", "Bearer " + at))
-                .andExpect(status().isUnprocessableEntity());
-        verify(codefApiClient, never()).createAccount(any());
+        connect(at, SAMSUNG, "ST")
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.errorCode").value("UNSUPPORTED_OPERATION"));
+
+        mockMvc.perform(get("/api/codef/connections").header("Authorization", "Bearer " + at))
+                .andExpect(jsonPath("$.data.length()").value(0));
     }
 
     @Test

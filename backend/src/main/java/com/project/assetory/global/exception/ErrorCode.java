@@ -14,7 +14,6 @@ public enum ErrorCode {
     // CODEF
     CODEF_SYNC_FAILED(500, "CODEF 동기화에 실패했습니다"),
     CODEF_AUTH_FAILED(401, "CODEF 인증에 실패했습니다"),
-    CODEF_UNSUPPORTED_OPERATION(422, "해당 증권사는 현재 로그인 방식으로 자산 조회를 지원하지 않습니다."),
     CODEF_ALREADY_CONNECTED(409, "이미 연동된 금융기관입니다."),
     CODEF_CONNECT_IN_PROGRESS(409, "해당 금융기관 연동이 진행 중입니다."),
 

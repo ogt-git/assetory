@@ -64,21 +64,32 @@ public final class StockAssetParser {
                     continue;
                 }
 
-                BigDecimal quantity  = orZero(decimal(item, "resQuantity"));
-                BigDecimal purchase  = orZero(decimal(item, "resPurchaseAmount"));
-                BigDecimal valuation = orZero(decimal(item, "resValuationAmt"));
-                BigDecimal profit    = orZero(decimal(item, "resValuationPL"));
-                BigDecimal rate      = orZero(decimal(item, "resEarningsRate"));
+                // 필수 값(수량·평가금액)이 없거나 해석할 수 없으면 0으로 채우지 않고 응답 불완전으로 본다
+                // (평가금액은 CODEF 평가액을 임시로 쓰는 동안 필수 — 한투 종가 적용 후 재검토)
+                BigDecimal quantity  = decimal(item, "resQuantity");
+                BigDecimal valuation = decimal(item, "resValuationAmt");
+                if (quantity == null || valuation == null) {
+                    invalid++;
+                    continue;
+                }
+                // 선택 값 — 없으면 null로 둔다 (0으로 만들지 않음)
+                BigDecimal purchase = decimal(item, "resPurchaseAmount");
+                BigDecimal profit   = decimal(item, "resValuationPL");
+                BigDecimal rate     = decimal(item, "resEarningsRate");
 
-                // 전량 매도 종목: 수량·매입금액·평가금액 모두 0 — 보유 목록에서 제외
-                if (quantity.signum() <= 0 && purchase.signum() == 0 && valuation.signum() == 0) {
+                // 전량 매도 종목: 응답에 명시된 수량·평가금액(·매입금액)이 모두 0 — 보유 목록에서 제외
+                // 응답이 완전한 보유 목록일 때만 저장에 반영된다 (불완전 응답은 아무것도 바꾸지 않음)
+                if (quantity.signum() <= 0 && valuation.signum() == 0 && (purchase == null || purchase.signum() == 0)) {
                     soldOut++;
                     continue;
                 }
 
-                BigDecimal[] corrected = correctMissingAmounts(valuation, purchase, profit, rate);
-                purchase = corrected[0];
-                profit = corrected[1];
+                // 매입금액·손익이 비면 수익률로 역산 — 수익률도 없으면 null 그대로
+                if (rate != null && valuation.signum() > 0) {
+                    BigDecimal[] corrected = correctMissingAmounts(valuation, orZero(purchase), orZero(profit), rate);
+                    purchase = corrected[0];
+                    profit = corrected[1];
+                }
 
                 holdings.add(new ParsedHolding(
                         ticker,
@@ -90,14 +101,16 @@ public final class StockAssetParser {
                         valuation,
                         purchase,
                         profit,
-                        rate.setScale(4, RoundingMode.HALF_UP)));
+                        rate == null ? null : rate.setScale(4, RoundingMode.HALF_UP)));
             }
         }
 
+        // 예수금은 필수 — 없거나 해석할 수 없으면 응답 불완전 (정상 숫자 0원은 유효)
+        BigDecimal depositReceived = decimal(data, "resDepositReceived");
         return new ParsedStockAccount(
-                decimal(data, "resDepositReceived"),
+                depositReceived,
                 holdings,
-                itemListValid && invalid == 0,
+                itemListValid && invalid == 0 && depositReceived != null,
                 invalid, soldOut, foreign);
     }
 
@@ -136,7 +149,7 @@ public final class StockAssetParser {
 
     private static BigDecimal avgBuyPrice(BigDecimal given, BigDecimal purchase, BigDecimal quantity) {
         if (given != null) return given.setScale(2, RoundingMode.HALF_UP);
-        if (quantity.signum() > 0 && purchase.signum() > 0) {
+        if (purchase != null && quantity.signum() > 0 && purchase.signum() > 0) {
             return purchase.divide(quantity, 2, RoundingMode.HALF_UP);
         }
         return null;

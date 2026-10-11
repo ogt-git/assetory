@@ -17,6 +17,7 @@ public class SignupRequest {
     @NotBlank(message = "비밀번호를 입력해주세요")
     @Size(min = PasswordPolicy.MIN_LENGTH, max = PasswordPolicy.MAX_LENGTH, message = PasswordPolicy.LENGTH_MESSAGE)
     @Pattern(regexp = PasswordPolicy.REGEX, message = PasswordPolicy.REGEX_MESSAGE)
+    @BcryptSafePassword
     private String password;
 
     @NotBlank(message = "닉네임을 입력해주세요")

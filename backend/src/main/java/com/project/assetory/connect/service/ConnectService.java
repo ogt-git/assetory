@@ -17,7 +17,6 @@ import com.project.assetory.connect.exception.CodefAccountNotFoundException;
 import com.project.assetory.connect.exception.CodefAlreadyConnectedException;
 import com.project.assetory.connect.exception.CodefApiException;
 import com.project.assetory.connect.exception.CodefConnectInProgressException;
-import com.project.assetory.connect.exception.CodefUnsupportedOperationException;
 import com.project.assetory.connect.repository.ConnectedAccountRepository;
 import com.project.assetory.connect.repository.InstitutionRepository;
 import com.project.assetory.user.repository.UserRepository;
@@ -50,22 +49,6 @@ public class ConnectService {
             return 0
             """, Long.class);
 
-    // ID/PW 방식(loginType=1)으로 증권 자산 조회를 지원하지 않는 증권사 기관 코드
-    private static final Set<String> STOCK_IDPW_UNSUPPORTED_ORGS = Set.of(
-            "0225",  // IBK투자증권
-            "0243",  // 한국투자증권
-            "0262",  // 하이투자증권
-            "0264",  // 키움증권
-            "0270",  // 하나증권
-            "0279",  // DB금융투자
-            "0287"   // 메리츠증권
-    );
-
-    // 인증서 방식(loginType=0)으로 증권 자산 조회를 지원하지 않는 증권사 기관 코드
-    private static final Set<String> STOCK_CERT_UNSUPPORTED_ORGS = Set.of(
-            "0227"   // 다올투자증권
-    );
-
     private final CodefApiClient codefApiClient;
     private final ConnectedAccountRepository connectedAccountRepository;
     private final InstitutionRepository institutionRepository;
@@ -95,21 +78,10 @@ public class ConnectService {
         if (request.getPassword() == null || request.getPassword().isBlank()) {
             throw new IllegalArgumentException("password는 필수입니다.");
         }
-        // 증권 + 미지원 로그인 방식 조합 사전 차단 — CODEF createAccount 호출 전 거절
-        if ("ST".equals(businessType) && "1".equals(loginType)
-                && STOCK_IDPW_UNSUPPORTED_ORGS.contains(request.getOrganization())) {
-            throw new CodefUnsupportedOperationException(
-                    "해당 증권사는 ID/PW 방식으로 자산 조회를 지원하지 않습니다. 인증서 방식으로 연동해 주세요.",
-                    "STOCK_IDPW_UNSUPPORTED");
-        }
-        if ("ST".equals(businessType) && "0".equals(loginType)
-                && STOCK_CERT_UNSUPPORTED_ORGS.contains(request.getOrganization())) {
-            throw new CodefUnsupportedOperationException(
-                    "해당 증권사는 인증서 방식으로 자산 조회를 지원하지 않습니다.",
-                    "STOCK_CERT_UNSUPPORTED");
-        }
+        // 기관·로그인 방식 미지원은 사전 차단하지 않는다 — 검증되지 않은 목록으로 지원 기관까지 막지 않도록,
+        // CODEF가 돌려준 미지원 오류 코드(UNSUPPORTED_OPERATION)로만 안내한다 (S-1 결정)
 
-        // 증권 종합자산 조회에는 계좌번호가 필수 — 하이픈·공백은 제거해 저장 (미지원 조합 안내가 먼저 나가도록 그 뒤에서 확인)
+        // 증권 종합자산 조회에는 계좌번호가 필수 — 하이픈·공백은 제거해 저장
         String accountNumber = hasValue(request.getAccountNumber())
                 ? request.getAccountNumber().replaceAll("[-\\s]", "") : null;
         if ("ST".equals(businessType) && accountNumber == null) {

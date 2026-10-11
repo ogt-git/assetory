@@ -21,5 +21,6 @@ public class PasswordResetConfirmDto {
     @NotBlank
     @Size(min = PasswordPolicy.MIN_LENGTH, max = PasswordPolicy.MAX_LENGTH, message = PasswordPolicy.LENGTH_MESSAGE)
     @Pattern(regexp = PasswordPolicy.REGEX, message = PasswordPolicy.REGEX_MESSAGE)
+    @BcryptSafePassword
     private String newPassword;
 }
