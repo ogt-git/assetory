@@ -4,11 +4,14 @@ public class MaskingUtil {
 
     private MaskingUtil() {}
 
-    // 계좌번호 : 앞 3자리 + ******* + 뒤 4자리 (예: 12345678901 → "123*******8901")
+    // 계좌번호 : 하이픈·공백 제거 후 앞 3자리 + ******* + 뒤 4자리 (예: 123-4567-8901 → "123*******8901")
+    // 7자리 미만은 앞뒤를 남기면 원문이 대부분 드러나므로 전체를 가린다
     public static String maskAccountNumber(String accountNumber) {
-        if (accountNumber == null || accountNumber.length() < 7) return accountNumber;
-        String prefix = accountNumber.substring(0, 3);
-        String suffix = accountNumber.substring(accountNumber.length() - 4);
+        if (accountNumber == null) return null;
+        String digits = accountNumber.replaceAll("[-\\s]", "");
+        if (digits.length() < 7) return "*".repeat(digits.length());
+        String prefix = digits.substring(0, 3);
+        String suffix = digits.substring(digits.length() - 4);
         return prefix + "*******" + suffix;
     }
 
