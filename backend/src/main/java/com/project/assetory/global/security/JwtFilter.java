@@ -32,7 +32,8 @@ public class JwtFilter extends OncePerRequestFilter {
 
         if (header != null && header.startsWith("Bearer ")) {
             String token = header.substring(7);
-            if (jwtUtil.isValid(token)) {
+            // Access Token만 인증으로 인정 — RT를 Authorization 헤더에 넣어도 통과하지 않음
+            if (jwtUtil.isAccessToken(token)) {
                 Long userId = jwtUtil.getUserId(token);
                 UsernamePasswordAuthenticationToken auth =
                         new UsernamePasswordAuthenticationToken(userId, null, List.of());
