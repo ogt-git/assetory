@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mail.MailException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -112,6 +113,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<?>> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error("잘못된 파라미터 값입니다: " + e.getName() + "=" + e.getValue(), "INVALID_PARAMETER"));
+    }
+
+    @ExceptionHandler(MailException.class)
+    public ResponseEntity<ApiResponse<?>> handleMail(MailException e) {
+        log.error("[Mail] 이메일 발송 실패", e);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ApiResponse.error("이메일 발송에 실패했습니다. 서버 메일 설정을 확인해주세요.", "MAIL_SEND_FAILED"));
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)

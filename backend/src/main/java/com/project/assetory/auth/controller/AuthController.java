@@ -1,10 +1,15 @@
 package com.project.assetory.auth.controller;
 
+import com.project.assetory.auth.dto.EmailVerifyConfirmDto;
 import com.project.assetory.auth.dto.LoginRequest;
 import com.project.assetory.auth.dto.LoginResponse;
+import com.project.assetory.auth.dto.PasswordResetConfirmDto;
+import com.project.assetory.auth.dto.PasswordResetRequestDto;
 import com.project.assetory.auth.dto.SignupRequest;
 import com.project.assetory.auth.dto.TokenResponse;
 import com.project.assetory.auth.service.AuthService;
+import com.project.assetory.auth.service.EmailVerificationService;
+import com.project.assetory.auth.service.PasswordResetService;
 import com.project.assetory.auth.support.RefreshTokenCookieProvider;
 import com.project.assetory.global.exception.AuthException;
 import com.project.assetory.global.response.ApiResponse;
@@ -15,12 +20,16 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
     private final AuthService authService;
+    private final PasswordResetService passwordResetService;
+    private final EmailVerificationService emailVerificationService;
     private final RefreshTokenCookieProvider refreshTokenCookieProvider;
 
     @PostMapping("/signup")
@@ -57,5 +66,29 @@ public class AuthController {
         authService.logout((Long) authentication.getPrincipal(), refreshToken);
         refreshTokenCookieProvider.clearCookie(response);
         return ResponseEntity.ok(ApiResponse.success(null, "로그아웃되었습니다."));
+    }
+
+    @PostMapping("/email-verify/request")
+    public ResponseEntity<ApiResponse<Void>> requestEmailVerify(@Valid @RequestBody PasswordResetRequestDto request) {
+        emailVerificationService.sendOtp(request.getEmail());
+        return ResponseEntity.ok(ApiResponse.success(null, "인증코드가 이메일로 발송되었습니다."));
+    }
+
+    @PostMapping("/email-verify/confirm")
+    public ResponseEntity<ApiResponse<Map<String, String>>> confirmEmailVerify(@Valid @RequestBody EmailVerifyConfirmDto request) {
+        String token = emailVerificationService.verifyOtp(request.getEmail(), request.getOtp());
+        return ResponseEntity.ok(ApiResponse.success(Map.of("verificationToken", token), "이메일 인증이 완료되었습니다."));
+    }
+
+    @PostMapping("/password-reset/request")
+    public ResponseEntity<ApiResponse<Void>> requestPasswordReset(@Valid @RequestBody PasswordResetRequestDto request) {
+        passwordResetService.sendOtp(request.getEmail());
+        return ResponseEntity.ok(ApiResponse.success(null, "인증코드가 이메일로 발송되었습니다."));
+    }
+
+    @PostMapping("/password-reset/confirm")
+    public ResponseEntity<ApiResponse<Void>> confirmPasswordReset(@Valid @RequestBody PasswordResetConfirmDto request) {
+        passwordResetService.resetPassword(request.getEmail(), request.getOtp(), request.getNewPassword());
+        return ResponseEntity.ok(ApiResponse.success(null, "비밀번호가 성공적으로 변경되었습니다."));
     }
 }

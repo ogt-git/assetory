@@ -28,4 +28,7 @@ public class SignupRequest {
 
     @NotBlank(message = "약관 버전을 입력해주세요")
     private String termsVersion;
+
+    @NotBlank(message = "이메일 인증을 완료해주세요.")
+    private String verificationToken;
 }

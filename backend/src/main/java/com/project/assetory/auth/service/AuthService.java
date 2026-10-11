@@ -29,8 +29,11 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final RedisTokenService redisTokenService;
+    private final EmailVerificationService emailVerificationService;
 
     public void signup(SignupRequest request) {
+        emailVerificationService.validateAndConsume(request.getEmail(), request.getVerificationToken());
+
         String email = normalizeEmail(request.getEmail());
         String emailHash = HashUtil.sha256Base64(email);
         if (userRepository.existsByEmailHash(emailHash)) {
