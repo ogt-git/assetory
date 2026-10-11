@@ -1,0 +1,27 @@
+# 테스트 전용 — DB·Redis는 Testcontainers(@ServiceConnection)가 덮어쓴다. 아래 키는 테스트용 더미 값이며 실제 키가 아니다
+spring:
+  datasource:
+    url: jdbc:mysql://overridden-by-testcontainers/test
+    username: test
+    password: test
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  data:
+    redis:
+      host: localhost
+
+assetory:
+  crypto:
+    aes-key: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
+
+jwt:
+  secret: test-only-jwt-secret-not-for-real-use-0123456789
+
+cors:
+  allowed-origins: http://localhost:5173
+
+app:
+  cookie:
+    secure: false
+    same-site: Lax
