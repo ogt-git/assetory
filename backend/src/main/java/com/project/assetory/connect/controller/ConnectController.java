@@ -36,10 +36,10 @@ public class ConnectController {
 
     // 금융기관 계정 연결 — 인증서 방식(loginType=0)은 .der / .key 파일을 multipart/form-data로 전송
     @PostMapping(value = "/connect", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<ApiResponse<String>> connectAccount(
+    public ResponseEntity<ApiResponse<CodefConnectionResponse>> connectAccount(
             Authentication authentication,
             @NotBlank(message = "기관코드는 필수입니다") @RequestParam("organization") String organization,
-            @Pattern(regexp = "^(ST)$", message = "businessType은 ST이어야 합니다") @RequestParam("businessType") String businessType,
+            @Pattern(regexp = "^(BK|ST)$", message = "businessType은 BK 또는 ST이어야 합니다") @RequestParam("businessType") String businessType,
             @Pattern(regexp = "^[01]$", message = "loginType은 0 또는 1이어야 합니다") @RequestParam("loginType") String loginType,
             @NotBlank(message = "비밀번호는 필수입니다") @RequestParam("password") String password,
             @RequestParam(value = "id", required = false) String id,
@@ -60,7 +60,8 @@ public class ConnectController {
             connectService.attachCertFiles(request, derFile, keyFile);
         }
 
-        String response = connectService.connectAccount(userId, request);
+        // CODEF 원문 응답(connectedId 포함)은 내보내지 않고 연동 정보만 돌려준다
+        CodefConnectionResponse response = new CodefConnectionResponse(connectService.connectAccount(userId, request));
         return ResponseEntity.ok(ApiResponse.success(response, "계정 연결이 완료되었습니다."));
     }
 

@@ -115,11 +115,12 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(e.getMessage(), ErrorCode.CODEF_SYNC_FAILED.name()));
     }
 
-    //CODEF API 연동 장애 핸들러
+    // CODEF 실패 응답 — 사용자에게는 유형별 메시지와 유형 이름만 준다 (CODEF 원문 메시지는 로그에만)
     @ExceptionHandler(CodefApiException.class)
     public ResponseEntity<ApiResponse<?>> handleCodefApi(CodefApiException e) {
+        log.warn("[CODEF] 실패 응답 code={} type={} message={}", e.getCodefCode(), e.getErrorType(), e.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                .body(ApiResponse.error("[" + e.getCodefCode() + "] " + e.getMessage(), ErrorCode.CODEF_SYNC_FAILED.name()));
+                .body(ApiResponse.error(e.getErrorType().getUserMessage(), e.getErrorType().name()));
     }
 
     // 상품/로그인 방식 조합 미지원 (CF-12030, CF-12040, CF-12050, 사전 차단 포함) — 422 Unprocessable Entity

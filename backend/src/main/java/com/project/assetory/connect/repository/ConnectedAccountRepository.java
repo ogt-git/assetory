@@ -16,6 +16,7 @@ public interface ConnectedAccountRepository extends JpaRepository<ConnectedAccou
     Optional<ConnectedAccount> findByIdAndUserId(Long id, Long userId);
 
     // UNIQUE(user_id, institution_id, business_type) 기준 조회 — 재연결 시 기존 행 재사용
+    @EntityGraph(attributePaths = "institution")
     Optional<ConnectedAccount> findByUserIdAndInstitutionIdAndBusinessType(Long userId, Long institutionId,
                                                                           BusinessType businessType);
 

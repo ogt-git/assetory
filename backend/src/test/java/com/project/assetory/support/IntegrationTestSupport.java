@@ -2,6 +2,7 @@ package com.project.assetory.support;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.assetory.auth.mail.AuthMailSender;
+import com.project.assetory.connect.codef.CodefApiClient;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -24,7 +25,7 @@ import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-// MySQL·Redis 컨테이너를 테스트 JVM 전체에서 한 번만 띄워 공유한다 (Docker 필요). 메일은 목으로 대체해 발송된 코드를 가로챈다
+// MySQL·Redis 컨테이너를 테스트 JVM 전체에서 한 번만 띄워 공유한다 (Docker 필요). 메일·CODEF는 목으로 대체한다
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -32,8 +33,10 @@ public abstract class IntegrationTestSupport {
 
     protected static final String PASSWORD = "Passw0rd!";
 
+    // 부하가 큰 PC에서는 MySQL 기동이 2분(기본값)을 넘기기도 해서 대기 시간을 늘린다
     @ServiceConnection
-    static final MySQLContainer<?> MYSQL = new MySQLContainer<>(DockerImageName.parse("mysql:8.0"));
+    static final MySQLContainer<?> MYSQL = new MySQLContainer<>(DockerImageName.parse("mysql:8.0"))
+            .withStartupTimeoutSeconds(300);
 
     @ServiceConnection(name = "redis")
     static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
@@ -47,6 +50,7 @@ public abstract class IntegrationTestSupport {
     @Autowired protected MockMvc mockMvc;
     @Autowired protected ObjectMapper objectMapper;
     @MockitoBean protected AuthMailSender authMailSender;
+    @MockitoBean protected CodefApiClient codefApiClient;
 
     protected String uniqueEmail() {
         return "user-" + UUID.randomUUID().toString().substring(0, 8) + "@example.com";
@@ -97,5 +101,12 @@ public abstract class IntegrationTestSupport {
 
     protected ResultActions login(String email, String password) throws Exception {
         return postJson("/api/auth/login", Map.of("email", email, "password", password));
+    }
+
+    // 새 계정을 만들고 Access Token을 받는다
+    protected String signupAndGetAccessToken() throws Exception {
+        String body = login(signupNew(), PASSWORD).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).get("data").get("accessToken").asText();
     }
 }

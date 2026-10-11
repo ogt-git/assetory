@@ -8,6 +8,7 @@ import com.project.assetory.connect.domain.ConnectedAccount;
 import com.project.assetory.connect.domain.ConnectedAccountStatus;
 import com.project.assetory.connect.domain.Institution;
 import com.project.assetory.connect.dto.CodefConnectRequest;
+import com.project.assetory.connect.exception.CodefAccountNotFoundException;
 import com.project.assetory.connect.exception.CodefAlreadyConnectedException;
 import com.project.assetory.connect.exception.CodefApiException;
 import com.project.assetory.connect.exception.CodefConnectInProgressException;
@@ -18,9 +19,9 @@ import com.project.assetory.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.*;
@@ -33,6 +34,14 @@ public class ConnectService {
 
     private static final String CONNECT_LOCK_PREFIX = "codef:connect:lock:";
     private static final long CONNECT_LOCK_TTL_MINUTES = 5L;
+
+    // 소유권(UUID)이 일치할 때만 삭제 — GET 후 DEL 사이에 다른 요청의 락을 지우는 일을 막는다
+    private static final RedisScript<Long> RELEASE_LOCK_SCRIPT = RedisScript.of("""
+            if redis.call('GET', KEYS[1]) == ARGV[1] then
+                return redis.call('DEL', KEYS[1])
+            end
+            return 0
+            """, Long.class);
 
     // ID/PW 방식(loginType=1)으로 증권 자산 조회를 지원하지 않는 증권사 기관 코드
     private static final Set<String> STOCK_IDPW_UNSUPPORTED_ORGS = Set.of(
@@ -57,8 +66,8 @@ public class ConnectService {
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate stringRedisTemplate;
 
-    // 증권 계정 연결 (connectedId 발급)
-    public String connectAccount(Long userId, CodefConnectRequest request) throws Exception {
+    // 은행·증권 계정 연결 (connectedId 발급). 같은 기관·업무구분은 기존 행을 갱신한다 (FR-CN-08)
+    public ConnectedAccount connectAccount(Long userId, CodefConnectRequest request) throws Exception {
         String businessType = request.getBusinessType().toUpperCase();
         String loginType    = request.getLoginType();
 
@@ -66,8 +75,8 @@ public class ConnectService {
         if (!hasValue(request.getOrganization())) {
             throw new IllegalArgumentException("organization은 필수입니다.");
         }
-        if (!"ST".equals(businessType)) {
-            throw new IllegalArgumentException("businessType은 ST(증권)만 허용됩니다.");
+        if (!"BK".equals(businessType) && !"ST".equals(businessType)) {
+            throw new IllegalArgumentException("businessType은 BK(은행) 또는 ST(증권)만 허용됩니다.");
         }
         if (!"0".equals(loginType) && !"1".equals(loginType)) {
             throw new IllegalArgumentException("loginType은 '0'(인증서) 또는 '1'(아이디/패스워드)만 허용됩니다.");
@@ -77,21 +86,26 @@ public class ConnectService {
         }
 
         // 증권 + 미지원 로그인 방식 조합 사전 차단 — CODEF createAccount 호출 전 거절
-        if ("1".equals(loginType) && STOCK_IDPW_UNSUPPORTED_ORGS.contains(request.getOrganization())) {
+        if ("ST".equals(businessType) && "1".equals(loginType)
+                && STOCK_IDPW_UNSUPPORTED_ORGS.contains(request.getOrganization())) {
             throw new CodefUnsupportedOperationException(
                     "해당 증권사는 ID/PW 방식으로 자산 조회를 지원하지 않습니다. 인증서 방식으로 연동해 주세요.",
                     "STOCK_IDPW_UNSUPPORTED");
         }
-        if ("0".equals(loginType) && STOCK_CERT_UNSUPPORTED_ORGS.contains(request.getOrganization())) {
+        if ("ST".equals(businessType) && "0".equals(loginType)
+                && STOCK_CERT_UNSUPPORTED_ORGS.contains(request.getOrganization())) {
             throw new CodefUnsupportedOperationException(
                     "해당 증권사는 인증서 방식으로 자산 조회를 지원하지 않습니다.",
                     "STOCK_CERT_UNSUPPORTED");
         }
 
-        // 2. 기관 조회 (institutions 테이블)
+        // 2. 기관 조회 (institutions 테이블) + 업무 구분 일치 확인
         Institution institution = institutionRepository.findByCodefOrgCode(request.getOrganization())
                 .orElseThrow(() -> new IllegalArgumentException("지원하지 않는 금융기관입니다."));
-        BusinessType type = BusinessType.ST;
+        BusinessType type = BusinessType.valueOf(businessType);
+        if (institution.getInstitutionType() != type.getInstitutionType()) {
+            throw new IllegalArgumentException("선택한 금융기관과 업무 구분이 맞지 않습니다.");
+        }
 
         // 3. active 연동 선조회 — CODEF createAccount 호출 전 차단
         if (isAlreadyActive(userId, institution, type)) {
@@ -116,13 +130,13 @@ public class ConnectService {
             log.info("[Connect] userId={} organization={} businessType={} loginType={}",
                     userId, request.getOrganization(), businessType, loginType);
 
-            // 6. RSA 암호화 + CODEF createAccount 호출
+            // 6. RSA 암호화 + CODEF createAccount 호출 (기관 비밀번호·인증서는 이 요청에만 쓰고 저장·로그하지 않음)
             String encryptedPw = codefApiClient.encryptRSA(request.getPassword());
 
             HashMap<String, Object> accountMap = new HashMap<>();
             accountMap.put("countryCode", "KR");
             accountMap.put("businessType", businessType);
-            accountMap.put("clientType", resolveClientType(businessType));
+            accountMap.put("clientType", type.getClientType());
             accountMap.put("organization", request.getOrganization());
             accountMap.put("loginType", loginType);
             accountMap.put("password", encryptedPw);
@@ -165,21 +179,28 @@ public class ConnectService {
                 throw new CodefApiException(resultCode, resultMessage);
             }
 
-            // 7. DB 저장 또는 기존 행 재활성화 (UNIQUE(user_id, institution_id, business_type))
+            // 7. DB 저장 또는 기존 행 갱신 (UNIQUE(user_id, institution_id, business_type))
             String connectedId = root.path("data").path("connectedId").asText().replaceAll("[\\r\\n\\s]", "");
             if (connectedId.isEmpty()) {
                 throw new CodefApiException("CONNECTED_ID_EMPTY", "CODEF connectedId가 비어 있습니다. organizationCode=" + request.getOrganization());
             }
 
-            ConnectedAccount conn = connectedAccountRepository
-                    .findByUserIdAndInstitutionIdAndBusinessType(userId, institution.getId(), type)
-                    .orElseGet(() -> ConnectedAccount.create(
-                            userRepository.getReferenceById(userId), institution, connectedId, type));
+            Optional<ConnectedAccount> existing = connectedAccountRepository
+                    .findByUserIdAndInstitutionIdAndBusinessType(userId, institution.getId(), type);
+
+            // 재인증(AUTH_FAILED·EXPIRED) — 이전 connectedId는 CODEF에서 먼저 정리해 고아 계정을 남기지 않는다 (FR-CN-05)
+            existing.filter(prev -> prev.getConnectedId() != null)
+                    .ifPresent(prev -> deleteCodefAccountQuietly(prev.getConnectedId(), type,
+                            request.getOrganization(), prev.getId()));
+
+            ConnectedAccount conn = existing.orElseGet(() -> ConnectedAccount.create(
+                    userRepository.getReferenceById(userId), institution, connectedId, type));
             conn.reconnect(connectedId);
             connectedAccountRepository.save(conn);
             log.info("[Connect] saved/reactivated connectedId for org={} type={}", request.getOrganization(), type);
 
-            return response;
+            // 기관이 로딩된 conn을 돌려준다 (merge 결과는 기관이 지연 로딩 프록시일 수 있음 — open-in-view 꺼짐)
+            return conn;
 
         } finally {
             // 8. connect lock 해제 (소유권 검증 후 삭제)
@@ -187,45 +208,28 @@ public class ConnectService {
         }
     }
 
-    // 연동 해지 — CODEF deleteAccount 호출 후 상태 DISCONNECTED
-    @Transactional
-    public void disconnect(Long userId, Long connectionId) throws Exception {
+    // 연동 해지 — CODEF deleteAccount 호출(실패해도 진행) 후 DISCONNECTED, connectedId 즉시 파기 (D-21)
+    // CODEF 호출이 DB 트랜잭션을 붙잡지 않도록 트랜잭션 없이 조회 → 호출 → 저장 순서로 처리
+    public void disconnect(Long userId, Long connectionId) {
         ConnectedAccount connection = connectedAccountRepository
                 .findByIdAndUserId(connectionId, userId)
                 .orElseThrow(() -> new AccessDeniedException("해당 연동 정보에 접근할 수 없습니다."));
+        if (connection.getStatus() == ConnectedAccountStatus.DISCONNECTED) {
+            throw new CodefAccountNotFoundException("이미 해지된 연동입니다.");
+        }
 
-        String businessType = connection.getBusinessType().name();
-
-        HashMap<String, Object> accountMap = new HashMap<>();
-        accountMap.put("connectedId", connection.getConnectedId());
-        accountMap.put("countryCode", "KR");
-        accountMap.put("businessType", businessType);
-        accountMap.put("clientType", resolveClientType(businessType));
-        accountMap.put("organization", connection.getInstitution().getCodefOrgCode());
-
-        ArrayList<HashMap<String, Object>> accountList = new ArrayList<>();
-        accountList.add(accountMap);
-
-        HashMap<String, Object> params = new HashMap<>();
-        params.put("accountList", accountList);
-
-        try {
-            String response = codefApiClient.deleteAccount(params);
-            JsonNode root = objectMapper.readTree(response);
-            String resultCode = root.path("result").path("code").asText();
-            if (!"CF-00000".equals(resultCode)) {
-                log.warn("[Disconnect] CODEF 해지 응답 비정상 code={} connectionId={}", resultCode, connectionId);
-            }
-        } catch (Exception e) {
-            log.warn("[Disconnect] CODEF deleteAccount 실패 connectionId={}", connectionId, e);
+        if (connection.getConnectedId() != null) {
+            deleteCodefAccountQuietly(connection.getConnectedId(), connection.getBusinessType(),
+                    connection.getInstitution().getCodefOrgCode(), connectionId);
         }
 
         connection.disconnect();
+        connectedAccountRepository.save(connection);
 
         log.info("[Disconnect] connectionId={} userId={} deactivated", connectionId, userId);
     }
 
-    @Transactional(readOnly = true)
+    // AUTH_FAILED·EXPIRED도 함께 보여준다 — 사용자가 재인증할 수 있게 (FR-CN-05)
     public List<ConnectedAccount> getConnections(Long userId) {
         return connectedAccountRepository.findAllByUserIdAndStatusNotOrderByIdAsc(
                 userId, ConnectedAccountStatus.DISCONNECTED);
@@ -250,6 +254,33 @@ public class ConnectService {
         }
     }
 
+    // CODEF 계정 삭제 — 실패해도 로컬 처리는 계속한다 (원본 방식)
+    private void deleteCodefAccountQuietly(String connectedId, BusinessType type, String organization, Long connectionId) {
+        HashMap<String, Object> accountMap = new HashMap<>();
+        accountMap.put("connectedId", connectedId);
+        accountMap.put("countryCode", "KR");
+        accountMap.put("businessType", type.name());
+        accountMap.put("clientType", type.getClientType());
+        accountMap.put("organization", organization);
+
+        ArrayList<HashMap<String, Object>> accountList = new ArrayList<>();
+        accountList.add(accountMap);
+
+        HashMap<String, Object> params = new HashMap<>();
+        params.put("accountList", accountList);
+
+        try {
+            String response = codefApiClient.deleteAccount(params);
+            JsonNode root = objectMapper.readTree(response);
+            String resultCode = root.path("result").path("code").asText();
+            if (!"CF-00000".equals(resultCode)) {
+                log.warn("[Disconnect] CODEF 해지 응답 비정상 code={} connectionId={}", resultCode, connectionId);
+            }
+        } catch (Exception e) {
+            log.warn("[Disconnect] CODEF deleteAccount 실패 connectionId={} error={}", connectionId, e.getClass().getSimpleName());
+        }
+    }
+
     private boolean isAlreadyActive(Long userId, Institution institution, BusinessType type) {
         return connectedAccountRepository
                 .findByUserIdAndInstitutionIdAndBusinessType(userId, institution.getId(), type)
@@ -258,18 +289,10 @@ public class ConnectService {
     }
 
     private void releaseConnectLock(String lockKey, String lockToken, Long userId) {
-        String current = stringRedisTemplate.opsForValue().get(lockKey);
-        if (lockToken.equals(current)) {
-            stringRedisTemplate.delete(lockKey);
-            log.debug("[Connect] Redis 락 해제 userId={}", userId);
-        } else {
+        Long released = stringRedisTemplate.execute(RELEASE_LOCK_SCRIPT, List.of(lockKey), lockToken);
+        if (released == null || released == 0L) {
             log.warn("[Connect] 락 소유권 불일치 — 해제 건너뜀 userId={} (TTL 만료 후 재발급된 락)", userId);
         }
-    }
-
-    // ST=증권 → "A"(통합)
-    private String resolveClientType(String businessType) {
-        return "ST".equals(businessType) ? "A" : "P";
     }
 
     private boolean hasValue(String s) {

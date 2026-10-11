@@ -8,6 +8,11 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class CodefConfig {
 
+    // main()을 거치지 않는 실행(테스트 등)에서도 타임아웃이 빠지지 않게 한 번 더 보장
+    static {
+        CodefTimeouts.apply();
+    }
+
     @Value("${codef.client-id}")
     private String clientId;
 

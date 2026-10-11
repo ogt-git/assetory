@@ -8,7 +8,7 @@ import lombok.Setter;
 public class CodefConnectRequest {
 
     private String organization;  // 금융기관 코드
-    private String businessType;  // ST=증권
+    private String businessType;  // BK=은행, ST=증권
 
     // "0": 인증서 방식, "1": 아이디/패스워드 방식
     private String loginType;

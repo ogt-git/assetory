@@ -12,8 +12,18 @@ public final class CodefErrorClassifier {
     private static final Set<String> AUTH_UNRECOVERABLE_CODES = Set.of(
             "CF-12802", "CF-12806",
             "CF-12801", "CF-12800", "CF-12803",  // 금융사 비밀번호/아이디 오류 — updateAccount로 복구 불가
-            "CF-12834", "CF-12833",               // 계정 잠김 / 비밀번호 만료
+            "CF-12834",                           // 계정 잠김
             "CF-13031", "CF-13032"                // 증권 계좌 비밀번호 오류/잠금
+    );
+
+    // 금융기관 비밀번호 만료 — 상태를 EXPIRED로 구분하기 위해 AUTH_UNRECOVERABLE에서 분리
+    private static final Set<String> AUTH_EXPIRED_CODES = Set.of(
+            "CF-12833"
+    );
+
+    // easycodef 라이브러리가 통신 실패·타임아웃(IOException 등)을 예외 대신 이 코드로 돌려준다
+    private static final Set<String> NETWORK_ERROR_CODES = Set.of(
+            "CF-09980"
     );
 
     // 중복 로그인·부하 제한 — 즉시 재시도 금지, 연동 유지
@@ -26,7 +36,8 @@ public final class CodefErrorClassifier {
 
     private static final Set<String> TRANSIENT_ERROR_CODES = Set.of(
             "CF-01002", "CF-01004", "CF-01007", "CF-00016",
-            "CF-12003", "CF-12104", "CF-12703"
+            "CF-12003", "CF-12104", "CF-12703",
+            "CF-09999"  // CODEF 서버 처리 오류 (HTTP 5xx) — easycodef가 이 코드로 돌려줌
     );
 
     private static final Set<String> INSTITUTION_UNAVAILABLE_CODES = Set.of(
@@ -66,8 +77,10 @@ public final class CodefErrorClassifier {
         if (errorCode == null) return CodefErrorType.UNKNOWN;
         if (EMPTY_RESULT_CODES.contains(errorCode))              return CodefErrorType.EMPTY_RESULT;
         if (AUTH_ERROR_CODES.contains(errorCode))                return CodefErrorType.AUTH_ERROR;
+        if (AUTH_EXPIRED_CODES.contains(errorCode))              return CodefErrorType.AUTH_EXPIRED;
         if (AUTH_UNRECOVERABLE_CODES.contains(errorCode))        return CodefErrorType.AUTH_UNRECOVERABLE;
         if (COOLDOWN_CODES.contains(errorCode))                  return CodefErrorType.COOLDOWN;
+        if (NETWORK_ERROR_CODES.contains(errorCode))             return CodefErrorType.NETWORK_ERROR;
         if (TRANSIENT_ERROR_CODES.contains(errorCode))           return CodefErrorType.TRANSIENT_ERROR;
         if (RATE_LIMIT_CODES.contains(errorCode))                return CodefErrorType.RATE_LIMIT_ERROR;
         if (PERMANENT_ERROR_CODES.contains(errorCode))            return CodefErrorType.PERMANENT_ERROR;
