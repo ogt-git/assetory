@@ -47,7 +47,7 @@
 
 | 층 | 도메인 | 테이블 | 수 |
 |---|---|---|---|
-| 공통 | 사용자 · 인증 | users, user_settings, refresh_tokens, notification_channels, push_subscriptions | 5 |
+| 공통 | 사용자 · 인증 | users, user_settings, notification_channels, push_subscriptions | 4 |
 | 기반 | 기관 연동 | institutions, connected_accounts, sync_jobs | 3 |
 | 기반 | 자산 기록 | assets, deposit_details, holdings, asset_snapshots, asset_detail_snapshots | 5 |
 | 기반 | 시장 데이터 | stock_prices, macro_indicators | 2 |
@@ -56,9 +56,10 @@
 | 핵심 ② | 투자 목표 | investment_goals, goal_progress_snapshots | 2 |
 | 핵심 ③ | 예적금 | financial_products, product_comparisons | 2 |
 | 전달 | 감지 · 알림 | detection_rules, user_detection_settings, detection_events, notifications, notification_deliveries | 5 |
-| | | **합계** | **28** |
+| | | **합계** | **27** |
 
 > 운영 지표는 Micrometer → Prometheus로 수집하므로 **별도 테이블을 두지 않는다.**
+> Refresh Token은 테이블 대신 Redis에 저장한다(§3.3, §9). `refresh_tokens`가 빠져 테이블 수는 27개다. 소셜 로그인(연결 계정 테이블)은 향후 확장이라 두지 않는다.
 
 ### 1.3 설계 원칙
 - **PK**: `BIGINT AUTO_INCREMENT` 대리키
@@ -81,7 +82,6 @@
 ```mermaid
 erDiagram
     users ||--|| user_settings : has
-    users ||--o{ refresh_tokens : issues
     users ||--o{ notification_channels : registers
     users ||--o{ push_subscriptions : subscribes
     users ||--o{ connected_accounts : owns
@@ -90,10 +90,12 @@ erDiagram
 
     users {
         bigint id PK
-        varchar email UK
+        varchar email_enc
+        varchar email_hash UK
         varchar password_hash
         varchar nickname
         enum status
+        varchar terms_version
     }
     user_settings {
         bigint user_id PK_FK
@@ -101,12 +103,6 @@ erDiagram
         time quiet_hours_start
         time quiet_hours_end
         boolean onboarding_completed
-    }
-    refresh_tokens {
-        bigint id PK
-        bigint user_id FK
-        varchar token_hash UK
-        datetime expires_at
     }
     notification_channels {
         bigint id PK
@@ -133,6 +129,7 @@ erDiagram
         bigint user_id FK
         bigint institution_id FK
         varchar connected_id_enc
+        varchar account_password_enc
         enum business_type
         enum status
     }
@@ -405,11 +402,14 @@ erDiagram
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
 | id | BIGINT | PK | |
-| email | VARCHAR(255) | UNIQUE, NN | 로그인 ID |
-| password_hash | VARCHAR(60) | NN | Bcrypt |
+| email_enc | VARCHAR(512) | NN | 로그인 ID — AES-256-GCM 암호화. 소문자 · 공백 제거로 정규화한 뒤 저장 |
+| email_hash | VARCHAR(64) | UNIQUE, NN | SHA-256(정규화 이메일) Base64 — 조회 · 중복 검사용 |
+| password_hash | VARCHAR(60) | NULL | Bcrypt. 비밀번호 8~64자 · UTF-8 72바이트 이하(FR-AU-01). NULL 허용은 소셜 로그인 확장 대비 — 현재 가입 경로는 항상 저장하므로 NULL 행이 생기지 않음 |
 | nickname | VARCHAR(50) | NN | |
-| status | ENUM | D:'ACTIVE' | ACTIVE / DORMANT / WITHDRAWN |
+| status | ENUM | D:'ACTIVE' | ACTIVE / DORMANT / WITHDRAWN — ACTIVE가 아니면 로그인 · 토큰 갱신 차단. DORMANT(휴면) 전환 · 해제는 **범위 제외** (값만 유지) |
 | withdrawn_at | DATETIME | NULL | |
+| email_verified_at | DATETIME | NULL | 이메일 인증 시각 — 가입 전 인증을 거치므로 가입 시각으로 기록 |
+| terms_version | VARCHAR(20) | NN | 가입 시 동의한 약관 버전 |
 | created_at / updated_at | DATETIME | NN | |
 
 ### 3.2 user_settings
@@ -423,25 +423,27 @@ erDiagram
 | backfill_completed | BOOLEAN D:false | 최초 연동 시 보유 종목 30일 시세 · 과거 이벤트 소급 완료 여부 (자산 스냅샷 소급 아님) |
 
 ### 3.3 refresh_tokens
-| 컬럼 | 타입 | 설명 |
-|---|---|---|
-| id | BIGINT PK | |
-| user_id | BIGINT FK | |
-| token_hash | VARCHAR(255) UNIQUE | SHA-256 |
-| expires_at | DATETIME | |
-| rotated_from | BIGINT FK(self) NULL | Rotation 추적 |
+> **테이블을 두지 않고 Redis에 저장한다** (키는 §9). 토큰 원문이 아니라 SHA-256 해시를 키로 쓴다.
+
+| 항목 | 규칙 |
+|---|---|
+| 저장 | `auth:rt:token:{sha256(RT)}` → `{userId}`, 사용자 인덱스 `auth:rt:user:{userId}` (RT 해시 Set). TTL = RT 만료(14일) |
+| 세션 단위 | 기기별 다중 세션 — 사용자당 RT 여러 개 |
+| Rotation 추적 | `rotated_from` 대신, 회전된 토큰 키에 `rotated:{userId}` 표식을 남긴다(원래 만료까지 유지) |
+| 재사용 탐지 | 회전된 RT가 다시 오면 그 사용자의 RT를 전부 무효화 |
+| 무효화 범위 | 로그아웃은 현재 RT만. 비밀번호 재설정 · 재사용 탐지 · 탈퇴는 사용자 단위 전체 |
 
 ### 3.4 notification_channels
 | 컬럼 | 타입 | 설명 |
 |---|---|---|
 | id | BIGINT PK | |
 | user_id | BIGINT FK | |
-| channel_type | ENUM | WEB_PUSH / EMAIL — 사용자 채널 (v4.1: DISCORD · TELEGRAM 제외) |
-| destination_enc | VARCHAR(512) NULL | AES-256 — EMAIL은 이메일 주소, WEB_PUSH는 NULL (`push_subscriptions` 사용) |
+| channel_type | ENUM | WEB_PUSH / TELEGRAM — 사용자 채널 (2026-10-11: EMAIL → TELEGRAM 교체, EMAIL 알림은 향후 확장, DISCORD는 사용자 채널 아님) |
+| destination_enc | VARCHAR(512) NULL | AES-256 — TELEGRAM은 chat_id, WEB_PUSH는 NULL (`push_subscriptions` 사용). 텔레그램 연결 흐름 · 임시 연결 토큰 저장 방식 `[구현 시 확정]` |
 | is_active | BOOLEAN D:true | |
 
 > UNIQUE (user_id, channel_type)
-> 관리자 운영 알림(Discord 웹훅)은 사용자 데이터가 아니므로 테이블에 두지 않고 환경 설정으로 관리한다.
+> 개발자 운영 · 배포 알림(Discord 웹훅)은 사용자 데이터가 아니므로 테이블에 두지 않고 환경 설정으로 관리한다.
 
 ### 3.5 push_subscriptions
 | 컬럼 | 타입 | 설명 |
@@ -465,17 +467,24 @@ erDiagram
 | name | VARCHAR(100) | |
 | institution_type | ENUM | BANK / SECURITIES |
 
+> 초기 데이터는 기동 시 멱등 입력한다(id 고정 + `codef_org_code` 기준 upsert). CODEF 기관 목록과 일치 — 증권사 22개, 은행 20개, 이름은 CODEF 공식 표기. CODEF 미지원 기관(카카오뱅크 · 토스뱅크)은 넣지 않는다.
+
 ### 4.2 connected_accounts
 | 컬럼 | 타입 | 설명 |
 |---|---|---|
 | id | BIGINT PK | |
 | user_id / institution_id | BIGINT FK | |
-| connected_id_enc | VARCHAR(512) | AES-256 |
-| business_type | ENUM | BK(은행) / ST(증권) |
-| status | ENUM | ACTIVE / AUTH_FAILED / EXPIRED |
+| connected_id_enc | VARCHAR(512) NULL | AES-256 — 해지 시 NULL로 즉시 파기 |
+| account_password_enc | VARCHAR(512) NULL | AES-256 — 증권 계좌 비밀번호(CODEF 종합자산 조회용). 해지 시 NULL로 파기 |
+| business_type | ENUM | BK(은행) / ST(증권) — CODEF 요청 clientType은 BK=P(개인), ST=A(통합). 기관 유형과 업무 구분이 다르면 연결 거부 |
+| status | ENUM | ACTIVE / AUTH_FAILED / EXPIRED / DISCONNECTED(연동 해지) |
 | last_synced_at | DATETIME | |
+| created_at | DATETIME | `updated_at`은 두지 않음 |
 
 > UNIQUE (user_id, institution_id, business_type)
+> **재연결**: 같은 기관을 다시 연결하면(AUTH_FAILED · EXPIRED · DISCONNECTED 포함) 기존 행을 갱신한다 — 이전 connectedId를 CODEF에서 먼저 삭제하고 새 connectedId · ACTIVE로 바꾼다.
+> **해지**: CODEF 계정 삭제 호출(실패해도 진행) → status DISCONNECTED, `connected_id_enc` · `account_password_enc` NULL, **행은 유지**.
+> **상태 전이**: 검증된 오류 코드에 한해 인증 정보 오류 → AUTH_FAILED, 인증 · 연동 만료 → EXPIRED. 그 외 오류는 상태를 유지한다(04 FR-CN-06 표). 재인증에 성공하면 ACTIVE로 복구한다.
 
 ### 4.3 sync_jobs
 | 컬럼 | 타입 | 설명 |
@@ -486,9 +495,15 @@ erDiagram
 | job_type | ENUM | BALANCE / HOLDING / DEPOSIT / BACKFILL — BACKFILL은 최초 연동 수집 (과거 자산 스냅샷 생성 아님) |
 | status | ENUM | RUNNING / SUCCESS / FAILED |
 | collected_count | INT | |
-| error_type | ENUM NULL | CODEF 오류 분류 |
+| error_type | ENUM NULL | CODEF 오류 분류 — AUTH_ERROR / AUTH_UNRECOVERABLE / AUTH_EXPIRED / NETWORK_ERROR / TRANSIENT_ERROR / RATE_LIMIT_ERROR / PERMANENT_ERROR / INSTITUTION_UNAVAILABLE / COOLDOWN / EMPTY_RESULT / UNSUPPORTED_OPERATION / OPERATION_PERMISSION_DENIED / UNKNOWN (코드 대응은 04 FR-CN-06) |
 | started_at / finished_at | DATETIME | |
-| error_message | TEXT NULL | |
+| error_message | TEXT NULL | 사용자용 문구만 저장 — 계좌번호 · connectedId · CODEF 응답 원문은 넣지 않음 |
+
+> **job_type 사용**: 증권은 CODEF 종합자산 1회 호출로 예수금 · 보유 종목을 함께 받으므로 HOLDING 1행으로 기록한다(증권에 BALANCE는 쓰지 않음). 최초 연동 수집은 BACKFILL.
+> **기록 시점**: 실행마다 1행. RUNNING으로 먼저 기록(커밋)한 뒤 SUCCESS / FAILED로 바꾼다. 같은 연동 계정의 동기화가 진행 중이면(락 충돌) 행을 만들지 않는다.
+> **응답 불완전**: 예수금 · 종목 수량 · 평가금액이 없거나 해석할 수 없을 때, 종목별 조회 실패 · 종목코드 누락이 있을 때는 FAILED(UNKNOWN)로 기록하고 assets · holdings를 **부분 갱신하지 않는다**. 기존 값은 남지만 그날 정상 수집한 값으로 인정하지 않는다. 정상 숫자 0은 누락이 아니다.
+> **계좌 동기화 FAILED ≠ 스냅샷 FAILED**: 한 계좌가 실패해도 다른 유효 자산이 있으면 그날 스냅샷은 PARTIAL이다(§4.7).
+> **수동 새로고침과 분리**: 수동 새로고침(FR-CN-09)도 같은 서비스로 이 표에 기록되고 job_type은 HOLDING이다. job_type은 작업 내용 분류일 뿐 실행 출처(배치/수동)를 구분하지 않으므로, 스냅샷 상태는 `(connected_account_id, target_date)`의 마지막 성공 행으로 판정하지 않고 **그 배치 실행에서 얻은 계좌별 수집 결과(또는 그 실행의 sync_jobs.id 집합)만** 사용한다(§11.2). 연결 유지가 어려워지면 실행 출처 컬럼 도입을 다시 검토한다.
 
 ### 4.4 assets
 | 컬럼 | 타입 | 설명 |
@@ -496,26 +511,34 @@ erDiagram
 | id | BIGINT PK | |
 | user_id | BIGINT FK | |
 | connected_account_id | BIGINT FK NULL | 수기 자산은 NULL |
-| institution_id | BIGINT FK | |
+| institution_id | BIGINT FK NULL | 수기 자산은 기관이 없을 수 있어 NULL 허용 |
 | asset_type | ENUM | CHECKING / DEPOSIT / SAVINGS / SECURITIES / CASH |
-| asset_class | ENUM | SECURITIES / DEPOSIT / CASH — 결산 · 구성 집계 단위. 규칙: 보유 종목 평가액 → SECURITIES, 증권 계좌 예수금 · 입출금 계좌 → CASH, 예금 · 적금 → DEPOSIT |
+| asset_class | ENUM | SECURITIES / DEPOSIT / CASH — 결산 · 구성 집계 단위. 규칙: 보유 종목 평가액 → SECURITIES, 증권 계좌 예수금 · 입출금 계좌 → CASH, 예금 · 적금 → DEPOSIT. **증권 계좌 행은 CASH**(행의 balance가 예수금)이고, 종목 평가액은 holdings를 합산해 SECURITIES로 집계 |
 | name | VARCHAR(100) | |
 | account_number_enc | VARCHAR(512) NULL | AES-256 |
 | account_number_masked | VARCHAR(50) NULL | |
-| balance | DECIMAL(18,2) | 잔액 — 증권 계좌는 예수금 (CODEF 필드 `[확인 필요]`) |
-| is_active | BOOLEAN | |
+| balance | DECIMAL(18,2) NULL | 잔액 — 증권 계좌는 예수금 (CODEF 필드 `[확인 필요]`), **첫 정상 수집 전에는 NULL**(0으로 채우지 않음). 수기 자산은 사용자가 입력한 현재 금액(예금 · 적금은 현재 잔액, 현금 · 입출금은 보유액), 0보다 커야 함 |
+| is_active | BOOLEAN | 연동 해지 시 false — 행은 유지(자산 기록 참조)하고 해당 holdings는 삭제. **수기 자산 삭제도 false(soft delete)** — 행과 deposit_details를 남긴다 |
+| updated_at | DATETIME | |
 
-> 해외 주식은 수집 · 기록하지 않는다. 수기 자산(`connected_account_id` NULL)의 자산군 · 가치 갱신 방식 `[구현 시 확정]`
+> 해외 주식은 수집 · 기록하지 않는다. 수기 자산(`connected_account_id` NULL)의 가치 갱신 방식(이자 반영 등) `[구현 시 확정]`
+> **수기 자산**: 유형은 DEPOSIT / SAVINGS / CASH만 쓴다 — asset_class는 DEPOSIT · SAVINGS → DEPOSIT, CASH → CASH. **은행 입출금 계좌는 CASH로 입력**하고 이름으로 구분한다(CHECKING은 향후 CODEF 은행 수집용). DEPOSIT · SAVINGS는 `deposit_details`를 필수로 받고 assets와 한 트랜잭션으로 저장한다. 수정 · 삭제는 수기 자산만 가능하다.
+> **soft delete 이유**: 자산별 일별 기록(asset_detail_snapshots)이 asset_id를 참조하므로 행을 지우면 과거 기록이 깨진다(01 "사실만 기록"). 비활성 자산은 목록 · 합계 · 수정에서 제외한다.
+> 첫 정상 수집 전(NULL)이거나 수집에 실패한 금액은 현재 자산 조회 합계에서 빼고 "불완전"으로 표시한다 — 부분 합계를 정상 총자산처럼 쓰지 않는다(FR-AS-01).
+> 증권 계좌 행은 증권 연결 시점에 만든다 — 연결 요청에서 계좌번호(필수, 하이픈 제거) · 계좌 비밀번호(선택)를 받는다. 연동 계정당 증권 계좌 1행(기관당 1계좌).
+> **DB 유니크 제약을 두지 않는다** — 같은 유형의 자산이 여러 개일 수 있다(수기 자산 등). 증권 계좌 "연동 계정당 1행"은 앱 코드(조회 후 생성)와 동기화 락으로 보장한다.
 
 ### 4.5 deposit_details
 | 컬럼 | 타입 | 설명 |
 |---|---|---|
 | asset_id | BIGINT PK, FK | |
-| interest_rate | DECIMAL(5,3) | |
-| start_date / maturity_date | DATE | |
-| principal | DECIMAL(18,2) | |
-| save_term | INT | 개월 |
-| auto_renew | BOOLEAN | |
+| interest_rate | DECIMAL(5,3) NN | 연 금리(%) — 0 이상, 100 미만 |
+| start_date / maturity_date | DATE NN | 만기일은 시작일보다 뒤 |
+| principal | DECIMAL(18,2) NN | 0보다 큼 |
+| save_term | INT NN | 개월 — 1 이상 |
+| auto_renew | BOOLEAN NN | |
+
+> 수기로 등록하는 DEPOSIT · SAVINGS는 이 행을 필수로 받는다. CASH는 행을 만들지 않는다 — 유형을 CASH로 바꾸면 행을 지운다. 자산을 삭제(soft delete)해도 행은 남긴다.
 
 ### 4.6 holdings
 | 컬럼 | 타입 | 설명 |
@@ -523,13 +546,17 @@ erDiagram
 | id | BIGINT PK | |
 | asset_id | BIGINT FK | |
 | ticker / stock_name | VARCHAR | |
-| security_type | ENUM | STOCK / ETF — ETF는 원인 분석에서 공시 · 뉴스 수집 생략. 판별 방식 `[확인 필요]` |
+| security_type | ENUM NULL | STOCK / ETF — ETF는 원인 분석에서 공시 · 뉴스 수집 생략. CODEF는 단일 종목과 ETF를 구분해 주지 않으므로 CODEF 수집 단계에서는 NULL로 저장하고, 다른 소스(시세 수집에서 쓰는 한투 종목 정보 등)로 채운다. 소스 · 시점 `[구현 시 확정]` |
 | quantity | DECIMAL(18,4) | |
 | avg_buy_price / current_price | DECIMAL(18,2) | |
-| eval_amount | DECIMAL(18,2) | 보유수량 × 동일 기준일 시세. CODEF 평가액 · 한투 시세 중 최종 기준 `[확인 필요]` |
+| eval_amount | DECIMAL(18,2) | **한투 종가 × 같은 기준 시점의 보유수량**. 시세 수집 전까지는 CODEF 평가액(`resValuationAmt`)을 임시로 저장 |
 | profit_loss / profit_loss_rate | DECIMAL | |
+| updated_at | DATETIME | |
 
 > UNIQUE (asset_id, ticker)
+> **갱신**: (asset_id, ticker) 기준 upsert. 완전한 응답(§4.3)일 때만 반영하며, 응답에 없는 종목은 보유 종료로 보고 현재 목록에서 삭제한다(과거 asset_detail_snapshots는 보존). 응답에 **명시된** 수량 · 평가(· 매입)가 모두 0인 종목은 저장하지 않는다. 이 정리 규칙은 CODEF 응답이 완전한 보유 목록이고 빈 목록이 정상 무보유를 뜻한다는 전제에 기대므로, 실제 응답으로 확인한다 `[확인 필요]`.
+> **0 치환 금지**: 종목코드 · 수량 · 평가금액(CODEF 평가액을 임시로 쓰는 동안)은 필수이고, 없거나 해석할 수 없으면 0으로 바꾸지 않고 응답 불완전으로 처리한다. 매입금액 · 손익 · 수익률은 선택 값 — 수익률로 역산할 수 없으면 NULL로 둔다. 한투 종가 적용 후에는 수량 · 종목코드 · 기준일 종가가 필수다.
+> **CODEF 필드 대응**: ticker ← resItemCode, stock_name ← resItemName, quantity ← resQuantity, avg_buy_price ← resAvgPresentAmt(없으면 매입금액 ÷ 수량), current_price ← resPresentAmt(없으면 평가금액 ÷ 수량), eval_amount ← resValuationAmt(임시), profit_loss ← resValuationPL, profit_loss_rate ← resEarningsRate
 
 ### 4.7 asset_snapshots — 일별 자산 기록 ★
 > **자산 가계부의 "내역" 한 줄.** S-02 자산 기록 화면의 원천.
@@ -552,6 +579,9 @@ erDiagram
 
 > UNIQUE (user_id, snapshot_date)
 > 비교 · 감지 · 하이라이트 · 목표 · 결산 · 추이 조회는 **`status = COMPLETE`만** 사용한다. PARTIAL · FAILED 행은 이력 · 오류 확인용이다.
+> **판정 대상(필수 자산)**: 그 날짜 기준 기존 연동 계좌 + 삭제되지 않은 수기 자산. 증권 계좌는 ACTIVE뿐 아니라 수집이 막힌 AUTH_FAILED · EXPIRED도 분모에 포함한다(실제 CODEF 호출은 ACTIVE만). DISCONNECTED는 해지 이후 날짜에서 제외한다. 대상 시각 이후 새로 연결된 계좌를 누락으로 보지 않는 기준(대상 시각 · 연결 시각)과 수기 자산 변경분의 반영 시점은 `[구현 시 확정]`.
+> **상태 조건**: COMPLETE = 필수 대상이 모두 반영되고 종목코드 · 수량 · 예수금 등 필수 데이터가 유효하며 필요한 일별 종가를 같은 기준일로 확보해 합계 계산에 성공. PARTIAL = 일부 누락이지만 유효한 부분 기록 가능. FAILED = 유효한 기록이 성립하지 않음. 대상 자산이 하나도 없으면 COMPLETE(공집합)를 만들지 않고 "기록할 자산 없음"으로 구분한다.
+> **수동 새로고침은 스냅샷을 만들거나 덮어쓰지 않는다** — 현재 assets · holdings만 갱신한다. 최초 연동의 첫 기록(§11.1)은 별개다.
 > 첫 행은 **계좌 연동일**이다. 과거 날짜 행을 소급 생성하지 않는다 (v4.1: `is_backfilled` 삭제). 연동일 행의 생성 시점(연동 직후 / 당일 배치) `[구현 시 확정]`
 
 ### 4.8 asset_detail_snapshots — 자산별 일별 기록
@@ -880,7 +910,7 @@ erDiagram
 
 ## 9. Redis 키 설계
 
-> Redis는 **보조 저장소**다 (락 · 한도 카운터 · 캐시). 분석 결과 원본은 MySQL에 저장한다.
+> Redis는 **보조 저장소**다 (락 · 한도 카운터 · 캐시 · 인증 토큰 · 인증코드). 분석 결과 원본은 MySQL에 저장한다.
 
 | 용도 | 키 | 타입 | TTL | 설명 |
 |---|---|---|---|---|
@@ -893,6 +923,20 @@ erDiagram
 | 발송 상한 | `notify:rate:{userId}:{ruleCode}` | Counter | 규칙별 | (FR-NT-05) |
 | 한투 API 토큰 | `kis:access-token` | String | 토큰 만료 | 토큰 재사용 |
 | 알림 큐 (후보) | `stream:notifications` | Stream | — | Redis Stream 채택 시에만 사용. DB PENDING 폴링이면 불필요 `[구현 시 확정]` |
+| **Refresh Token** | `auth:rt:token:{sha256(RT)}` | String | RT 만료(14일) | 값 `{userId}` 또는 회전 표식 `rotated:{userId}` — 저장 · 재사용 탐지 (§3.3) |
+| RT 사용자 인덱스 | `auth:rt:user:{userId}` | Set | 14일, 추가 시 갱신 | RT 해시 목록 — 사용자 단위 일괄 무효화 (KEYS · SCAN 미사용) |
+| 가입 인증코드 | `auth:email-verify:code:{emailHash}` | String | 5분 | sha256(인증코드) |
+| 가입 인증 실패 횟수 | `auth:email-verify:attempt:{emailHash}` | Counter | 5분 | 5회면 코드 폐기 |
+| 가입 인증 재발송 쿨다운 | `auth:email-verify:cooldown:{emailHash}` | String | 60초 | |
+| 가입 인증 토큰 | `auth:email-verify:token:{sha256(token)}` | String | 10분 | 값 emailHash — 가입 시 1회 소비 |
+| 비밀번호 재설정 코드 | `auth:pw-reset:code:{emailHash}` | String | 5분 | sha256(코드), 1회용 |
+| 재설정 실패 횟수 | `auth:pw-reset:attempt:{emailHash}` | Counter | 5분 | 5회면 코드 폐기 |
+| 재설정 재발송 쿨다운 | `auth:pw-reset:cooldown:{emailHash}` | String | 60초 | 계정 존재 여부와 관계없이 적용 |
+| 수동 새로고침 쿨다운 | `codef:refresh:cooldown:{userId}:STOCK` | String | 5분 | 사용자 단위 — 증권 수동 새로고침(FR-CN-09) CODEF 호출 폭증 방지. 수집을 시작하면 성공·실패와 관계없이 유지, 대상 연동이 없거나 모두 동기화 중이면 걸지 않음 |
+| 기관 연결 락 | `codef:connect:lock:{userId}:{institutionId}` | String | 5분 | 값 UUID — 같은 기관 동시 연결 방지 |
+| 동기화 락 | `codef:lock:{connectedAccountId}` | String | 300초 | 값 UUID, 소유자만 해제 — 같은 연동 계정 동시 동기화 방지 |
+
+> CODEF 액세스 토큰은 Redis에 두지 않는다 — CODEF 클라이언트 라이브러리가 메모리에 캐시한다.
 
 ### 공유 분석 생성 흐름
 ```
@@ -936,6 +980,7 @@ C 처리 → 조회 → 있음 → 재사용
 | deposit_details | `(maturity_date)` | 만기 스캔 |
 | financial_products | `(product_type, save_term, max_rate DESC)` | 최고 금리 |
 | holdings | UNIQUE `(asset_id, ticker)` | 종목 갱신 |
+| users | UNIQUE `(email_hash)` | 로그인 · 중복 검사 |
 
 ---
 
@@ -943,7 +988,9 @@ C 처리 → 조회 → 있음 → 재사용
 
 ### 11.1 최초 연동 · 소급
 ```
-CODEF 연동 → assets · holdings · deposit_details 저장 → sync_jobs(BACKFILL)
+CODEF 연동(증권 계좌 assets 행 생성) → 연동 저장 트랜잭션 커밋
+  → 커밋 후 비동기 수집 → assets · holdings 저장 → sync_jobs(BACKFILL) — 수집이 실패해도 연동은 유지
+     (deposit_details는 CODEF 수집이 아니라 수기 입력)
   → 연동일 asset_snapshots 1건 (수집 상태 판정) — 사용자 자산 기록의 시작
   → 보유 종목 최근 30일 시세 소급 → stock_prices
   → |change_rate| ≥ 5% 날짜마다 stock_event_analyses 조회 · 생성
@@ -955,14 +1002,18 @@ CODEF 연동 → assets · holdings · deposit_details 저장 → sync_jobs(BACK
 
 ### 11.2 일별 자산 기록 (16:00)
 ```
-CODEF 증권 · 예적금 · 입출금 수집 → holdings · assets 갱신 → sync_jobs(target_date) 기록
+CODEF 증권 수집(ACTIVE 연동만) → holdings · assets 갱신 → sync_jobs(target_date) 기록
+  (예적금 · 입출금은 수기 입력 — CODEF 수집 대상 아님)
   → 보유 종목 합집합 시세 → stock_prices
   → 지수 · 지표 → macro_indicators
-  → 평가금액 = 보유수량 × 동일 기준일 시세 (최종 기준 [확인 필요])
+  → 평가금액 = 한투 종가 × 같은 기준 시점의 보유수량
   → 수집 결과로 status 판정: 전부 성공 COMPLETE / 일부 누락 PARTIAL / 기록 불가 FAILED
   → asset_detail_snapshots (성공한 자산만) / asset_snapshots
   → COMPLETE면 직전 COMPLETE 기록 대비 day_change · market_change · other_change 사전 계산
 ```
+> **판정 입력은 이번 배치 실행의 결과만** — 계좌별 수집 결과(또는 이번 실행의 sync_jobs.id 집합)로 상태를 판정하고, 평가 · 합산도 이번 실행에서 확보한 결과로 한다. 수동 새로고침으로 나중에 바뀐 현재 holdings를 다시 읽어 섞지 않는다. 새 테이블 · 컬럼 없이 실행 결과를 넘기는 방식을 우선한다.
+> **동기화 락 충돌**: 배치가 수집을 시작한 계좌의 수동 새로고침은 "이미 동기화 중"으로 거절한다. 배치가 락을 얻지 못하면 짧게 대기한 뒤 **1회 재시도**한다(락 TTL 300초를 통째로 기다리지 않음). 재시도도 실패하면 그 계좌는 이번 실행의 누락으로 처리해 PARTIAL / FAILED에 반영한다 — 정기 배치를 조용히 건너뛰거나 이전 값으로 COMPLETE를 만들지 않는다. 16:00 전후 수동 새로고침 차단 구간은 고정하지 않는다.
+> 이 두 규칙은 공식 스냅샷 배치를 구현할 때 적용한다. 현재 계정 동기화 배치는 락 충돌 계정을 건너뛰고 로그만 남긴다(스냅샷 미구현).
 
 ### 11.3 급등락 감지 → 공유 분석 → 알림
 ```
@@ -983,7 +1034,7 @@ CODEF 증권 · 예적금 · 입출금 수집 → holdings · assets 갱신 → 
   → detection_events 생성
   ↓ 알림
   → 변동률 큰 순 정렬 → 상위 3건 개별 알림, 나머지 묶음 1건
-  → 알림 큐(구현 방식 [구현 시 확정]) → 워커 → 웹 푸시 · 이메일 → notification_deliveries
+  → 알림 큐(구현 방식 [구현 시 확정]) → 워커 → 웹 푸시 · 텔레그램(연결한 사용자만) → notification_deliveries
 ```
 
 **총자산 변동 (뉴스 수집 없음)**
@@ -1018,7 +1069,7 @@ ACTIVE 목표 순회 (당일 asset_snapshots가 COMPLETE인 사용자만)
   → goal_progress_snapshots 월초 · 월말 → goal_progress
   → deposit_details 다음 달 만기 · 목표 필요 납입액 → checkpoints
   → LLM 한 줄 총평 (월 1회, 실패 시 NULL)
-  → monthly_reports 저장 → 이메일 + 웹 푸시
+  → monthly_reports 저장 → 웹 푸시(요약) + 텔레그램(전문, 연결한 사용자만)
 ```
 
 ### 11.6 예적금 비교
@@ -1077,3 +1128,7 @@ ACTIVE 목표 순회 (당일 asset_snapshots가 COMPLETE인 사용자만)
 | 근거 상태 | evidence_status | 신뢰 등급 대신 근거 확인 결과만 표시 |
 | 계산 기준 저장 | product_comparisons.calc_basis | 금액 제안의 가정과 계산 기준을 함께 제공 |
 | 운영 지표 테이블 없음 | Micrometer | 제품 DB와 운영 관측 분리 |
+| Refresh Token Redis 저장 | 해시 키 + 회전 표식 | 테이블 없이 만료 · 일괄 무효화 · 재사용 탐지 |
+| 수기 자산 soft delete | assets.is_active | 자산별 일별 기록의 asset_id 참조 보존 |
+| 0 치환 금지 | 누락 = 응답 불완전 | 빠진 값을 0으로 채우면 가짜 급증 · 급락이 기록됨 |
+| 수동 새로고침 분리 | 현재값만 갱신, 스냅샷은 배치 실행 결과로만 | 공식 일별 기록의 기준 보존 |
