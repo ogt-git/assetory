@@ -1,6 +1,14 @@
 package com.project.assetory.global.exception;
 
 import com.project.assetory.global.response.ApiResponse;
+import com.project.assetory.connect.exception.CodefAccountNotFoundException;
+import com.project.assetory.connect.exception.CodefAlreadyConnectedException;
+import com.project.assetory.connect.exception.CodefApiException;
+import com.project.assetory.connect.exception.CodefAuthException;
+import com.project.assetory.connect.exception.CodefConnectInProgressException;
+import com.project.assetory.connect.exception.CodefInstitutionUnavailableException;
+import com.project.assetory.connect.exception.CodefSyncException;
+import com.project.assetory.connect.exception.CodefUnsupportedOperationException;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
@@ -87,6 +95,61 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<?>> handleTooManyRequests(TooManyRequestsException e) {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .body(ApiResponse.error(e.getMessage(), ErrorCode.TOO_MANY_REQUESTS.name()));
+    }
+
+    @ExceptionHandler(CodefAuthException.class)
+    public ResponseEntity<ApiResponse<?>> handleCodefAuth(CodefAuthException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.error(e.getMessage(), ErrorCode.CODEF_AUTH_FAILED.name()));
+    }
+
+    @ExceptionHandler(CodefAccountNotFoundException.class)
+    public ResponseEntity<ApiResponse<?>> handleCodefAccountNotFound(CodefAccountNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(e.getMessage(), ErrorCode.CONNECTION_NOT_FOUND.name()));
+    }
+
+    @ExceptionHandler(CodefSyncException.class)
+    public ResponseEntity<ApiResponse<?>> handleCodefSync(CodefSyncException e) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResponse.error(e.getMessage(), ErrorCode.CODEF_SYNC_FAILED.name()));
+    }
+
+    //CODEF API 연동 장애 핸들러
+    @ExceptionHandler(CodefApiException.class)
+    public ResponseEntity<ApiResponse<?>> handleCodefApi(CodefApiException e) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResponse.error("[" + e.getCodefCode() + "] " + e.getMessage(), ErrorCode.CODEF_SYNC_FAILED.name()));
+    }
+
+    // 상품/로그인 방식 조합 미지원 (CF-12030, CF-12040, CF-12050, 사전 차단 포함) — 422 Unprocessable Entity
+    @ExceptionHandler(CodefUnsupportedOperationException.class)
+    public ResponseEntity<ApiResponse<?>> handleCodefUnsupportedOperation(CodefUnsupportedOperationException e) {
+        log.warn("[CodefUnsupportedOperation] code={} message={}", e.getCodefCode(), e.getMessage());
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(ApiResponse.error(e.getMessage(), ErrorCode.CODEF_UNSUPPORTED_OPERATION.name()));
+    }
+
+    // 이미 활성 연동이 존재 — 409 Conflict
+    @ExceptionHandler(CodefAlreadyConnectedException.class)
+    public ResponseEntity<ApiResponse<?>> handleCodefAlreadyConnected(CodefAlreadyConnectedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(e.getMessage(), "CODEF_ALREADY_CONNECTED"));
+    }
+
+    // 동일 기관 연동이 진행 중 — 409 Conflict
+    @ExceptionHandler(CodefConnectInProgressException.class)
+    public ResponseEntity<ApiResponse<?>> handleCodefConnectInProgress(CodefConnectInProgressException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(e.getMessage(), "CODEF_CONNECT_IN_PROGRESS"));
+    }
+
+    // 금융기관 사이트 변경/점검으로 조회 불가 (CF-12701, CF-12710) — 503 Service Unavailable
+    @ExceptionHandler(CodefInstitutionUnavailableException.class)
+    public ResponseEntity<ApiResponse<?>> handleCodefInstitutionUnavailable(CodefInstitutionUnavailableException e) {
+        log.warn("금융기관 조회 불가: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ApiResponse.error(e.getMessage(), "INSTITUTION_UNAVAILABLE"));
     }
 
     // 잘못된 상태 전환 → 400
