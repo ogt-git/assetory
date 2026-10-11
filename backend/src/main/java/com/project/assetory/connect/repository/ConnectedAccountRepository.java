@@ -5,6 +5,8 @@ import com.project.assetory.connect.domain.ConnectedAccount;
 import com.project.assetory.connect.domain.ConnectedAccountStatus;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -26,4 +28,14 @@ public interface ConnectedAccountRepository extends JpaRepository<ConnectedAccou
 
     @EntityGraph(attributePaths = "institution")
     List<ConnectedAccount> findAllByUserIdAndStatusNotOrderByIdAsc(Long userId, ConnectedAccountStatus status);
+
+    // 수동 새로고침 대상 — 사용자의 정상 증권 연동
+    @EntityGraph(attributePaths = "institution")
+    List<ConnectedAccount> findAllByUserIdAndBusinessTypeAndStatusOrderByIdAsc(Long userId, BusinessType businessType,
+                                                                               ConnectedAccountStatus status);
+
+    // 배치 대상 — 계정마다 동기화 서비스가 다시 조회하므로 id만 가져온다
+    @Query("select c.id from ConnectedAccount c where c.businessType = :businessType and c.status = :status order by c.id")
+    List<Long> findIdsByBusinessTypeAndStatus(@Param("businessType") BusinessType businessType,
+                                              @Param("status") ConnectedAccountStatus status);
 }

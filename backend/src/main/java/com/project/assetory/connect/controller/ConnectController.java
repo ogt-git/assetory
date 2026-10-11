@@ -2,11 +2,15 @@ package com.project.assetory.connect.controller;
 
 import com.project.assetory.connect.dto.CodefConnectRequest;
 import com.project.assetory.connect.dto.CodefConnectionResponse;
+import com.project.assetory.connect.dto.StockRefreshResponse;
 import com.project.assetory.connect.service.ConnectService;
+import com.project.assetory.connect.service.StockRefreshService;
+import com.project.assetory.global.exception.ErrorCode;
 import com.project.assetory.global.response.ApiResponse;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -23,6 +27,7 @@ import java.util.List;
 public class ConnectController {
 
     private final ConnectService connectService;
+    private final StockRefreshService stockRefreshService;
 
     // 연동 계정 목록 조회
     @GetMapping("/connections")
@@ -77,5 +82,18 @@ public class ConnectController {
         Long userId = (Long) authentication.getPrincipal();
         connectService.disconnect(userId, id);
         return ResponseEntity.ok(ApiResponse.success(null, "연동이 해지되었습니다."));
+    }
+
+    // 증권 자산 수동 새로고침 — 5분에 한 번
+    @PostMapping("/sync/stock")
+    public ResponseEntity<ApiResponse<StockRefreshResponse>> refreshStock(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        StockRefreshResponse result = stockRefreshService.refresh(userId);
+        if (result.hasFailure()) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(ApiResponse.error("일부 증권 계좌 동기화에 실패했습니다.", ErrorCode.CODEF_SYNC_FAILED.name()));
+        }
+        String message = result.accounts().isEmpty() ? "업데이트된 자산 정보가 없습니다." : "자산 정보 동기화가 완료되었습니다.";
+        return ResponseEntity.ok(ApiResponse.success(result, message));
     }
 }

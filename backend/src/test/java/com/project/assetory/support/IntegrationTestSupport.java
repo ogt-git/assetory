@@ -103,6 +103,17 @@ public abstract class IntegrationTestSupport {
         return postJson("/api/auth/login", Map.of("email", email, "password", password));
     }
 
+    // 비동기 작업 대기 — 조건이 참이 될 때까지 최대 timeout 동안 확인
+    protected static void awaitUntil(java.util.function.BooleanSupplier condition, java.time.Duration timeout)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            if (condition.getAsBoolean()) return;
+            Thread.sleep(100);
+        }
+        throw new AssertionError("시간 안에 조건을 만족하지 못했습니다: " + timeout);
+    }
+
     // 새 계정을 만들고 Access Token을 받는다
     protected String signupAndGetAccessToken() throws Exception {
         String body = login(signupNew(), PASSWORD).andExpect(status().isOk())

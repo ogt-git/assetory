@@ -12,6 +12,7 @@ import com.project.assetory.connect.domain.ConnectedAccount;
 import com.project.assetory.connect.domain.ConnectedAccountStatus;
 import com.project.assetory.connect.domain.Institution;
 import com.project.assetory.connect.dto.CodefConnectRequest;
+import com.project.assetory.connect.event.ConnectedAccountLinkedEvent;
 import com.project.assetory.connect.exception.CodefAccountNotFoundException;
 import com.project.assetory.connect.exception.CodefAlreadyConnectedException;
 import com.project.assetory.connect.exception.CodefApiException;
@@ -22,6 +23,7 @@ import com.project.assetory.connect.repository.InstitutionRepository;
 import com.project.assetory.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.security.access.AccessDeniedException;
@@ -73,6 +75,7 @@ public class ConnectService {
     private final AssetRepository assetRepository;
     private final HoldingRepository holdingRepository;
     private final TransactionTemplate transactionTemplate;
+    private final ApplicationEventPublisher eventPublisher;
 
     // 은행·증권 계정 연결 (connectedId 발급). 같은 기관·업무구분은 기존 행을 갱신한다 (FR-CN-08)
     public ConnectedAccount connectAccount(Long userId, CodefConnectRequest request) throws Exception {
@@ -212,12 +215,13 @@ public class ConnectService {
             conn.reconnect(connectedId);
             conn.changeAccountPassword(request.getAccountPassword());
 
-            // 연동 행과 증권 계좌 행(assets)을 한 트랜잭션으로 저장
+            // 연동 행과 증권 계좌 행(assets)을 한 트랜잭션으로 저장. 최초 수집은 커밋 뒤 비동기로 (InitialSyncListener)
             transactionTemplate.executeWithoutResult(status -> {
                 ConnectedAccount saved = connectedAccountRepository.save(conn);
                 if (type == BusinessType.ST) {
                     upsertSecuritiesAsset(saved, institution, accountNumber);
                 }
+                eventPublisher.publishEvent(new ConnectedAccountLinkedEvent(saved.getId(), type));
             });
             log.info("[Connect] saved/reactivated connectedId for org={} type={}", request.getOrganization(), type);
 

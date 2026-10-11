@@ -48,7 +48,7 @@ public class PasswordResetService {
 
     public PasswordResetService(UserRepository userRepository, PasswordEncoder passwordEncoder,
                                 OtpStore otpStore, AuthMailSender authMailSender, AuthService authService,
-                                @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
+                                @Qualifier("authMailExecutor") TaskExecutor taskExecutor) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.otpStore = otpStore;
