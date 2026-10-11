@@ -44,6 +44,8 @@ public class ConnectController {
             @NotBlank(message = "비밀번호는 필수입니다") @RequestParam("password") String password,
             @RequestParam(value = "id", required = false) String id,
             @RequestParam(value = "birthDate", required = false) String birthDate,
+            @RequestParam(value = "accountNumber", required = false) String accountNumber,
+            @RequestParam(value = "accountPassword", required = false) String accountPassword,
             @RequestPart(value = "derFile", required = false) MultipartFile derFile,
             @RequestPart(value = "keyFile", required = false) MultipartFile keyFile
     ) throws Exception {
@@ -54,6 +56,8 @@ public class ConnectController {
         request.setPassword(password);
         request.setId(id);
         request.setBirthDate(birthDate);
+        request.setAccountNumber(accountNumber);
+        request.setAccountPassword(accountPassword);
 
         Long userId = (Long) authentication.getPrincipal();
         if ("0".equals(loginType)) {

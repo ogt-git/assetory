@@ -25,3 +25,6 @@ app:
   cookie:
     secure: false
     same-site: Lax
+
+# CODEF 동기화 재시도 대기 — 테스트에서는 기다리지 않음
+assetory.codef.sync.retry-backoff-ms: 0

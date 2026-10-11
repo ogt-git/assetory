@@ -95,6 +95,13 @@ public class ConnectedAccount {
         this.status = ConnectedAccountStatus.DISCONNECTED;
     }
 
+    // 증권 계좌 비밀번호 — 입력이 없으면 기존 값 유지
+    public void changeAccountPassword(String accountPassword) {
+        if (accountPassword != null && !accountPassword.isBlank()) {
+            this.accountPassword = accountPassword;
+        }
+    }
+
     public void changeStatus(ConnectedAccountStatus status) {
         this.status = status;
     }

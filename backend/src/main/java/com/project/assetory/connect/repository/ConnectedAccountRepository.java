@@ -20,6 +20,10 @@ public interface ConnectedAccountRepository extends JpaRepository<ConnectedAccou
     Optional<ConnectedAccount> findByUserIdAndInstitutionIdAndBusinessType(Long userId, Long institutionId,
                                                                           BusinessType businessType);
 
+    // 동기화용 — 트랜잭션 밖에서 기관 코드를 읽으므로 기관을 함께 로딩
+    @EntityGraph(attributePaths = "institution")
+    Optional<ConnectedAccount> findWithInstitutionById(Long id);
+
     @EntityGraph(attributePaths = "institution")
     List<ConnectedAccount> findAllByUserIdAndStatusNotOrderByIdAsc(Long userId, ConnectedAccountStatus status);
 }

@@ -2,6 +2,10 @@ package com.project.assetory.connect.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.project.assetory.asset.domain.Asset;
+import com.project.assetory.asset.domain.AssetType;
+import com.project.assetory.asset.repository.AssetRepository;
+import com.project.assetory.asset.repository.HoldingRepository;
 import com.project.assetory.connect.codef.CodefApiClient;
 import com.project.assetory.connect.domain.BusinessType;
 import com.project.assetory.connect.domain.ConnectedAccount;
@@ -22,6 +26,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.*;
@@ -65,6 +70,9 @@ public class ConnectService {
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate stringRedisTemplate;
+    private final AssetRepository assetRepository;
+    private final HoldingRepository holdingRepository;
+    private final TransactionTemplate transactionTemplate;
 
     // 은행·증권 계정 연결 (connectedId 발급). 같은 기관·업무구분은 기존 행을 갱신한다 (FR-CN-08)
     public ConnectedAccount connectAccount(Long userId, CodefConnectRequest request) throws Exception {
@@ -84,7 +92,6 @@ public class ConnectService {
         if (request.getPassword() == null || request.getPassword().isBlank()) {
             throw new IllegalArgumentException("password는 필수입니다.");
         }
-
         // 증권 + 미지원 로그인 방식 조합 사전 차단 — CODEF createAccount 호출 전 거절
         if ("ST".equals(businessType) && "1".equals(loginType)
                 && STOCK_IDPW_UNSUPPORTED_ORGS.contains(request.getOrganization())) {
@@ -97,6 +104,13 @@ public class ConnectService {
             throw new CodefUnsupportedOperationException(
                     "해당 증권사는 인증서 방식으로 자산 조회를 지원하지 않습니다.",
                     "STOCK_CERT_UNSUPPORTED");
+        }
+
+        // 증권 종합자산 조회에는 계좌번호가 필수 — 하이픈·공백은 제거해 저장 (미지원 조합 안내가 먼저 나가도록 그 뒤에서 확인)
+        String accountNumber = hasValue(request.getAccountNumber())
+                ? request.getAccountNumber().replaceAll("[-\\s]", "") : null;
+        if ("ST".equals(businessType) && accountNumber == null) {
+            throw new IllegalArgumentException("증권 계좌번호는 필수입니다.");
         }
 
         // 2. 기관 조회 (institutions 테이블) + 업무 구분 일치 확인
@@ -196,7 +210,15 @@ public class ConnectService {
             ConnectedAccount conn = existing.orElseGet(() -> ConnectedAccount.create(
                     userRepository.getReferenceById(userId), institution, connectedId, type));
             conn.reconnect(connectedId);
-            connectedAccountRepository.save(conn);
+            conn.changeAccountPassword(request.getAccountPassword());
+
+            // 연동 행과 증권 계좌 행(assets)을 한 트랜잭션으로 저장
+            transactionTemplate.executeWithoutResult(status -> {
+                ConnectedAccount saved = connectedAccountRepository.save(conn);
+                if (type == BusinessType.ST) {
+                    upsertSecuritiesAsset(saved, institution, accountNumber);
+                }
+            });
             log.info("[Connect] saved/reactivated connectedId for org={} type={}", request.getOrganization(), type);
 
             // 기관이 로딩된 conn을 돌려준다 (merge 결과는 기관이 지연 로딩 프록시일 수 있음 — open-in-view 꺼짐)
@@ -223,8 +245,16 @@ public class ConnectService {
                     connection.getInstitution().getCodefOrgCode(), connectionId);
         }
 
-        connection.disconnect();
-        connectedAccountRepository.save(connection);
+        // 연동 행·자산 정리를 한 트랜잭션으로 — 자산 행은 남기고(자산 기록 참조) 비활성화, 보유 종목은 삭제 (D-21)
+        transactionTemplate.executeWithoutResult(status -> {
+            connection.disconnect();
+            connectedAccountRepository.save(connection);
+            assetRepository.findByConnectedAccountIdAndAssetType(connectionId, AssetType.SECURITIES)
+                    .ifPresent(asset -> {
+                        holdingRepository.deleteAllByAssetId(asset.getId());
+                        asset.deactivate();
+                    });
+        });
 
         log.info("[Disconnect] connectionId={} userId={} deactivated", connectionId, userId);
     }
@@ -279,6 +309,15 @@ public class ConnectService {
         } catch (Exception e) {
             log.warn("[Disconnect] CODEF deleteAccount 실패 connectionId={} error={}", connectionId, e.getClass().getSimpleName());
         }
+    }
+
+    // 증권 계좌는 연동 계정당 1행 — 재연결이면 계좌번호를 바꾸고 다시 활성화
+    private void upsertSecuritiesAsset(ConnectedAccount connection, Institution institution, String accountNumber) {
+        assetRepository.findByConnectedAccountIdAndAssetType(connection.getId(), AssetType.SECURITIES)
+                .ifPresentOrElse(
+                        asset -> asset.relink(accountNumber),
+                        () -> assetRepository.save(Asset.securitiesAccount(
+                                connection.getUser(), connection, institution, accountNumber)));
     }
 
     private boolean isAlreadyActive(Long userId, Institution institution, BusinessType type) {

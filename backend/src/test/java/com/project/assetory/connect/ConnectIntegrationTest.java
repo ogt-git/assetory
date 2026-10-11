@@ -246,6 +246,55 @@ class ConnectIntegrationTest extends IntegrationTestSupport {
         verify(codefApiClient, never()).createAccount(any());
     }
 
+    @Test
+    @DisplayName("증권 연결 → assets 1행(SECURITIES·CASH, 계좌번호 암호화·마스킹, balance는 수집 전이라 NULL), 계좌 비밀번호는 암호화 저장")
+    void securitiesConnect_createsAssetRow() throws Exception {
+        String at = signupAndGetAccessToken();
+        long id = idOf(connect(at, SAMSUNG, "ST").andExpect(status().isOk()));
+
+        Map<String, Object> asset = jdbcTemplate.queryForMap(
+                "SELECT asset_type, asset_class, name, account_number_enc, account_number_masked, balance, is_active " +
+                "FROM assets WHERE connected_account_id = ?", id);
+        assertThat(asset.get("asset_type")).isEqualTo("SECURITIES");
+        assertThat(asset.get("asset_class")).isEqualTo("CASH");
+        assertThat(asset.get("name")).isEqualTo("삼성증권");
+        assertThat((String) asset.get("account_number_enc")).isNotBlank().doesNotContain("12345678901");
+        assertThat(asset.get("account_number_masked")).isEqualTo("123*******8901");
+        assertThat(asset.get("balance")).isNull();
+        assertThat(asset.get("is_active")).isIn(true, 1, (byte) 1);
+
+        String password = jdbcTemplate.queryForObject(
+                "SELECT account_password_enc FROM connected_accounts WHERE id = ?", String.class, id);
+        assertThat(password).isNotBlank().isNotEqualTo("4321");
+    }
+
+    @Test
+    @DisplayName("증권 연결에 계좌번호가 없으면 400, CODEF 호출 안 함")
+    void securitiesConnect_requiresAccountNumber() throws Exception {
+        String at = signupAndGetAccessToken();
+
+        mockMvc.perform(multipart("/api/codef/connect")
+                        .param("organization", SAMSUNG).param("businessType", "ST").param("loginType", "1")
+                        .param("id", "bank-login-id").param("password", "bank-login-password")
+                        .header("Authorization", "Bearer " + at))
+                .andExpect(status().isBadRequest());
+        verify(codefApiClient, never()).createAccount(any());
+    }
+
+    @Test
+    @DisplayName("해지 → 자산 행은 남기고 비활성화, 보유 종목 삭제 (D-21)")
+    void disconnect_deactivatesAssetAndDeletesHoldings() throws Exception {
+        String at = signupAndGetAccessToken();
+        long id = idOf(connect(at, SAMSUNG, "ST").andExpect(status().isOk()));
+        Long assetId = jdbcTemplate.queryForObject("SELECT id FROM assets WHERE connected_account_id = ?", Long.class, id);
+        jdbcTemplate.update("INSERT INTO holdings (asset_id, ticker, quantity) VALUES (?, '005930', 1)", assetId);
+
+        disconnect(at, id).andExpect(status().isOk());
+
+        assertThat(jdbcTemplate.queryForObject("SELECT is_active FROM assets WHERE id = ?", Boolean.class, assetId)).isFalse();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM holdings WHERE asset_id = ?", Integer.class, assetId)).isZero();
+    }
+
     // ---------- helpers ----------
 
     private ResultActions connect(String accessToken, String organization, String businessType) throws Exception {
@@ -255,6 +304,8 @@ class ConnectIntegrationTest extends IntegrationTestSupport {
                 .param("loginType", "1")
                 .param("id", "bank-login-id")
                 .param("password", "bank-login-password")
+                .param("accountNumber", "ST".equals(businessType) ? "123-45-678901" : "")
+                .param("accountPassword", "ST".equals(businessType) ? "4321" : "")
                 .header("Authorization", "Bearer " + accessToken));
     }
 
