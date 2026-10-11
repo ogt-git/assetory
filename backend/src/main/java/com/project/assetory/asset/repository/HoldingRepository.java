@@ -12,6 +12,8 @@ public interface HoldingRepository extends JpaRepository<Holding, Long> {
 
     List<Holding> findAllByAssetId(Long assetId);
 
+    List<Holding> findAllByAssetIdInOrderByIdAsc(List<Long> assetIds);
+
     @Modifying
     @Query("DELETE FROM Holding h WHERE h.asset.id = :assetId")
     void deleteAllByAssetId(@Param("assetId") Long assetId);

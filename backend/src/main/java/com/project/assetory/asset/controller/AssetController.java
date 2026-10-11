@@ -2,7 +2,7 @@ package com.project.assetory.asset.controller;
 
 import com.project.assetory.asset.dto.ManualAssetRequest;
 import com.project.assetory.asset.dto.ManualAssetResponse;
-import com.project.assetory.asset.dto.StockAccountResponse;
+import com.project.assetory.asset.dto.AssetOverviewResponse;
 import com.project.assetory.asset.service.AssetQueryService;
 import com.project.assetory.asset.service.ManualAssetService;
 import com.project.assetory.global.response.ApiResponse;
@@ -23,11 +23,11 @@ public class AssetController {
     private final AssetQueryService assetQueryService;
     private final ManualAssetService manualAssetService;
 
-    // 증권 자산 조회 — 계좌번호는 마스킹
-    @GetMapping("/stocks")
-    public ResponseEntity<ApiResponse<List<StockAccountResponse>>> getStocks(Authentication authentication) {
+    // 통합 자산 조회 (FR-AS-01) — 증권 계좌 + 수기 자산 + 자산군별 합계. 계좌번호는 마스킹 값만
+    @GetMapping("/assets")
+    public ResponseEntity<ApiResponse<AssetOverviewResponse>> getAssets(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
-        return ResponseEntity.ok(ApiResponse.success(assetQueryService.getStocks(userId)));
+        return ResponseEntity.ok(ApiResponse.success(assetQueryService.getOverview(userId)));
     }
 
     // 수기 자산 입력
