@@ -32,6 +32,46 @@ services:
     volumes:
       - assetory-redis-data:/data
 
+  # 운영 지표 (FR-OP-01) — 기본 실행에서는 뜨지 않는다. `docker compose --profile monitoring up -d`
+  # 앱은 호스트에서 bootRun으로 실행하므로, 관리 포트(기본 8082)를 host.docker.internal로 수집한다 (docs/ops/monitoring.md)
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: assetory-prometheus
+    profiles: ["monitoring"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    # 로컬 PC에서만 접속 (외부 비노출)
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    # Linux Docker는 host.docker.internal이 기본으로 없어서 명시한다 (Docker Desktop은 원래 동작)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - assetory-prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:12.0.2
+    container_name: assetory-grafana
+    profiles: ["monitoring"]
+    # 관리자 계정은 루트 .env에서 받는다. 비우면 admin/admin(첫 로그인 때 변경 안내). 계정은 첫 기동 때 볼륨에 저장돼 이후 .env를 바꿔도 반영되지 않는다
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - assetory-grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
 volumes:
   assetory-mysql-data:
   assetory-redis-data:
+  assetory-prometheus-data:
+  assetory-grafana-data:

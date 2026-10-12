@@ -1,0 +1,11 @@
+# 로컬 Prometheus — 호스트에서 실행 중인 앱의 관리 포트를 수집한다 (docs/ops/monitoring.md)
+# 관리 포트를 바꿨다면(MANAGEMENT_SERVER_PORT) 아래 targets도 같이 바꾼다
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: assetory
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8082"]
