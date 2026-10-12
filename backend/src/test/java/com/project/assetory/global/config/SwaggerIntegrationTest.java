@@ -5,6 +5,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.context.TestPropertySource;
 
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasItems;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -24,6 +27,21 @@ class SwaggerIntegrationTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.paths['/api/codef/connect']").exists())
                 .andExpect(jsonPath("$.paths['/api/assets']").exists())
                 .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.scheme").value("bearer"));
+    }
+
+    @Test
+    @DisplayName("multipart API의 문자열 필드는 query가 아닌 폼 필드로 문서화된다 — 비밀번호가 URL에 실리지 않게")
+    void apiDocs_multipartFieldsInFormBody() throws Exception {
+        String connect = "$.paths['/api/codef/connect'].post";
+        String form = connect + ".requestBody.content['multipart/form-data'].schema";
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(connect + ".parameters[?(@.in == 'query')]").isEmpty())
+                .andExpect(jsonPath(form + ".properties.password").exists())
+                .andExpect(jsonPath(form + ".properties.accountPassword").exists())
+                .andExpect(jsonPath(form + ".properties.derFile").exists())
+                .andExpect(jsonPath(form + ".required", hasItems("organization", "businessType", "loginType", "password")))
+                .andExpect(jsonPath(form + ".required", not(hasItem("accountPassword"))));
     }
 
     @Test
