@@ -6,6 +6,7 @@ import com.project.assetory.asset.dto.AssetOverviewResponse;
 import com.project.assetory.asset.service.AssetQueryService;
 import com.project.assetory.asset.service.ManualAssetService;
 import com.project.assetory.global.response.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+@Tag(name = "자산")
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor

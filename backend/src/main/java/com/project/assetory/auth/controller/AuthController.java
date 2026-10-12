@@ -13,6 +13,7 @@ import com.project.assetory.auth.service.PasswordResetService;
 import com.project.assetory.auth.support.RefreshTokenCookieProvider;
 import com.project.assetory.global.exception.AuthException;
 import com.project.assetory.global.response.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+@Tag(name = "인증")
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor

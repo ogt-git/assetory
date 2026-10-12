@@ -7,6 +7,7 @@ import com.project.assetory.connect.service.ConnectService;
 import com.project.assetory.connect.service.StockRefreshService;
 import com.project.assetory.global.exception.ErrorCode;
 import com.project.assetory.global.response.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 
 @Validated
+@Tag(name = "연동")
 @RestController
 @RequestMapping("/api/codef")
 @RequiredArgsConstructor
