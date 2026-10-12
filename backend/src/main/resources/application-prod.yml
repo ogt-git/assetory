@@ -10,6 +10,13 @@ app:
     secure: true
     same-site: None
 
+# 운영에서는 SWAGGER_ENABLED 값과 관계없이 API 문서를 노출하지 않는다
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
 logging:
   level:
     root: INFO

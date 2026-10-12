@@ -81,6 +81,13 @@ codef:
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS}
 
+# API 문서(/v3/api-docs) · Swagger UI(/swagger-ui/index.html) — 기본 비활성, local에서만 SWAGGER_ENABLED=true로 켠다 (prod는 강제 비활성)
+springdoc:
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:false}
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:false}
+
 # Refresh Token 쿠키 — 프로필별로 덮어씀 (local: Secure false, prod: SameSite None)
 app:
   cookie:
