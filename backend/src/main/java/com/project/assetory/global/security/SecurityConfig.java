@@ -37,6 +37,10 @@ public class SecurityConfig {
     @Value("${cors.allowed-origins}")
     private String allowedOrigins;
 
+    // Swagger 경로는 API 문서가 켜져 있을 때(local + SWAGGER_ENABLED=true)만 공개한다
+    @Value("${springdoc.api-docs.enabled:false}")
+    private boolean swaggerEnabled;
+
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
@@ -63,13 +67,18 @@ public class SecurityConfig {
                 .httpBasic(basic -> basic.disable())
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/api/auth/signup", "/api/auth/login", "/api/auth/refresh",
-                                "/api/auth/email-verify/request", "/api/auth/email-verify/confirm",
-                                "/api/auth/password-reset/request", "/api/auth/password-reset/confirm").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
-                        .anyRequest().authenticated())
+                .authorizeHttpRequests(auth -> {
+                    auth
+                            .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                            .requestMatchers("/api/auth/signup", "/api/auth/login", "/api/auth/refresh",
+                                    "/api/auth/email-verify/request", "/api/auth/email-verify/confirm",
+                                    "/api/auth/password-reset/request", "/api/auth/password-reset/confirm").permitAll()
+                            .requestMatchers(HttpMethod.GET, "/api/health").permitAll();
+                    if (swaggerEnabled) {
+                        auth.requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll();
+                    }
+                    auth.anyRequest().authenticated();
+                })
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, e) ->
                                 writeError(response, HttpServletResponse.SC_UNAUTHORIZED, ErrorCode.AUTH_FAILED))
