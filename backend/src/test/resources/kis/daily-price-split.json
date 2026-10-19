@@ -1,0 +1,18 @@
+{
+  "_comment": "테스트 전용 — 액면분할일 형태(V1 실응답 2018-05-04 값 기준: 종가 51,900, 대비 −1,100, 부호 5, 전일 종가 2,650,000). prdy_ctrt는 기준가 53,000 대비",
+  "rt_cd": "0",
+  "msg_cd": "MCA00000",
+  "msg1": "정상처리 되었습니다.",
+  "output": [
+    {
+      "stck_bsop_date": "20180504", "stck_clpr": "51900", "acml_vol": "39565391",
+      "prdy_vrss": "-1100", "prdy_vrss_sign": "5", "prdy_ctrt": "-2.08",
+      "flng_cls_code": "00", "acml_prtt_rate": "0.00"
+    },
+    {
+      "stck_bsop_date": "20180503", "stck_clpr": "2650000", "acml_vol": "0",
+      "prdy_vrss": "0", "prdy_vrss_sign": "3", "prdy_ctrt": "0.00",
+      "flng_cls_code": "00", "acml_prtt_rate": "0.00"
+    }
+  ]
+}

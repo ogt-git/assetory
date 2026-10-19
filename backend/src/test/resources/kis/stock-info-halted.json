@@ -1,0 +1,10 @@
+{
+  "_comment": "테스트 전용 — 거래정지 종목 형태(tr_stop_yn=Y). 실제 거래정지 종목 응답으로는 아직 검증하지 못함(V3)",
+  "rt_cd": "0",
+  "msg_cd": "KIOK0000",
+  "msg1": "정상처리 되었습니다",
+  "output": {
+    "pdno": "000000", "prdt_abrv_name": "테스트정지", "scty_grp_id_cd": "ST", "etf_dvsn_cd": "0",
+    "etf_type_cd": "", "tr_stop_yn": "Y", "admn_item_yn": "N", "lstg_abol_dt": ""
+  }
+}
