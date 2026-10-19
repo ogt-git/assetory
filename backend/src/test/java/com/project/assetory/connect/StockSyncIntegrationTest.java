@@ -2,6 +2,7 @@ package com.project.assetory.connect;
 
 import com.project.assetory.asset.domain.Asset;
 import com.project.assetory.asset.domain.Holding;
+import com.project.assetory.asset.domain.SecurityType;
 import com.project.assetory.asset.repository.AssetRepository;
 import com.project.assetory.asset.repository.HoldingRepository;
 import com.project.assetory.connect.codef.CodefErrorType;
@@ -141,6 +142,39 @@ class StockSyncIntegrationTest extends IntegrationTestSupport {
         assertThat(holding("000660").getEvalAmount()).isEqualByComparingTo("880000");
         assertThat(syncJobRepository.findAllByConnectedAccountIdOrderByIdAsc(connectedAccountId)).hasSize(2)
                 .allMatch(job -> job.getStatus() == SyncJobStatus.SUCCESS);
+    }
+
+    @Test
+    @DisplayName("다시 동기화해도 시세 수집 단계에서 채운 security_type은 지우지 않는다 (CODEF는 STOCK/ETF를 주지 않음)")
+    void resyncKeepsSecurityType() throws Exception {
+        respondWith(fixture("stock-financial-assets-success.json"));
+        stockSyncService.sync(connectedAccountId, SyncJobType.HOLDING);
+        transactionTemplate.executeWithoutResult(status ->
+                holdingRepository.findAllByAssetId(assetId).stream()
+                        .filter(h -> h.getTicker().equals("005930"))
+                        .forEach(h -> h.assignSecurityType(SecurityType.STOCK)));
+
+        stockSyncService.sync(connectedAccountId, SyncJobType.HOLDING);
+
+        assertThat(holding("005930").getSecurityType()).isEqualTo(SecurityType.STOCK);
+        assertThat(holding("000660").getSecurityType()).isNull();
+    }
+
+    @Test
+    @DisplayName("EMPTY_RESULT → sync_jobs는 SUCCESS, 결과의 errorType은 EMPTY_RESULT, 기존 예수금 · 종목은 그대로 (C-06)")
+    void emptyResult_markedInResult() throws Exception {
+        respondWith(fixture("stock-financial-assets-success.json"));
+        stockSyncService.sync(connectedAccountId, SyncJobType.HOLDING);
+        respondWith("{\"result\":{\"code\":\"CF-03999\",\"message\":\"테스트 전용 결과 없음\"},\"data\":{}}");
+
+        SyncResult result = stockSyncService.sync(connectedAccountId, SyncJobType.HOLDING);
+
+        assertThat(result.status()).isEqualTo(SyncJobStatus.SUCCESS);
+        assertThat(result.errorType()).isEqualTo(CodefErrorType.EMPTY_RESULT);
+        assertThat(result.collectedCount()).isZero();
+        assertThat(syncJobRepository.findById(result.syncJobId()).orElseThrow().getStatus()).isEqualTo(SyncJobStatus.SUCCESS);
+        assertThat(asset().getBalance()).isEqualByComparingTo("1500000"); // 이전 값 유지 — 배치는 이 값을 쓰지 않는다
+        assertThat(holdings()).hasSize(2);
     }
 
     @Test
