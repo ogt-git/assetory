@@ -95,6 +95,10 @@ assetory:
     batch:
       enabled: ${ASSETORY_SYNC_BATCH_ENABLED:false}
       cron: ${ASSETORY_SYNC_BATCH_CRON:0 0 16 * * MON-FRI}
+      # 장 마감 지연일 전용 실행 — 지연 가드(16:40) 이후. 지연일이 아니면 아무것도 하지 않는다
+      late-close-cron: ${ASSETORY_SYNC_BATCH_LATE_CLOSE_CRON:0 50 16 * * MON-FRI}
+      # 동기화 락 충돌(수동 새로고침 진행 중) 시 1회 재시도 전 대기 — CODEF 1회 호출 타임아웃(10초)만큼 (05 §11.2)
+      lock-retry-wait-ms: ${ASSETORY_SYNC_BATCH_LOCK_RETRY_WAIT_MS:10000}
 
 # JWT — 서명 키는 32바이트 이상. 만료는 FR-AU-02 (AT 30분, RT 14일)
 jwt:
