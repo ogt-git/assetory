@@ -64,6 +64,7 @@
 ### 1.3 설계 원칙
 - **PK**: `BIGINT AUTO_INCREMENT` 대리키
 - **타입**: 금액 `DECIMAL(18,2)` / 비율 · 수익률 `DECIMAL(8,4)` / 금리 `DECIMAL(5,3)`
+- **반올림**: 평가액(종가 × 수량)은 종목별로 HALF_UP 소수 2자리 후 합산 — 자산별 상세 합과 자산군 금액이 일치. 변화율은 퍼센트, HALF_UP 소수 4자리
 - **암호화**: 접미사 `_enc`, AES-256. 마스킹 값은 별도 컬럼
 - **멱등성**: 외부 수집 · 공유 분석 · 사용자 이벤트 · 감지 이벤트 · 결산에 유니크 제약
 - **스냅샷 분리**: 현재 상태(assets · holdings)와 기록(snapshots)을 분리 — 자산 기록 · 추이 · 감지 · 결산의 원천
@@ -503,6 +504,7 @@ erDiagram
 > **기록 시점**: 실행마다 1행. RUNNING으로 먼저 기록(커밋)한 뒤 SUCCESS / FAILED로 바꾼다. 같은 연동 계정의 동기화가 진행 중이면(락 충돌) 행을 만들지 않는다.
 > **응답 불완전**: 예수금 · 종목 수량 · 평가금액이 없거나 해석할 수 없을 때, 종목별 조회 실패 · 종목코드 누락이 있을 때는 FAILED(UNKNOWN)로 기록하고 assets · holdings를 **부분 갱신하지 않는다**. 기존 값은 남지만 그날 정상 수집한 값으로 인정하지 않는다. 정상 숫자 0은 누락이 아니다.
 > **계좌 동기화 FAILED ≠ 스냅샷 FAILED**: 한 계좌가 실패해도 다른 유효 자산이 있으면 그날 스냅샷은 PARTIAL이다(§4.7).
+> **조회 결과 없음(EMPTY_RESULT)**: sync_jobs는 SUCCESS로 남기고 assets · holdings는 바꾸지 않는다. 동기화 결과에는 EMPTY_RESULT를 표시해, 일별 스냅샷은 그 계좌를 **누락**으로 판정한다(DB에 남은 예전 값을 쓰지 않음). 임시 정책 — CODEF 실제 응답 확인 후 재검토
 > **수동 새로고침과 분리**: 수동 새로고침(FR-CN-09)도 같은 서비스로 이 표에 기록되고 job_type은 HOLDING이다. job_type은 작업 내용 분류일 뿐 실행 출처(배치/수동)를 구분하지 않으므로, 스냅샷 상태는 `(connected_account_id, target_date)`의 마지막 성공 행으로 판정하지 않고 **그 배치 실행에서 얻은 계좌별 수집 결과(또는 그 실행의 sync_jobs.id 집합)만** 사용한다(§11.2). 연결 유지가 어려워지면 실행 출처 컬럼 도입을 다시 검토한다.
 
 ### 4.4 assets
@@ -546,7 +548,7 @@ erDiagram
 | id | BIGINT PK | |
 | asset_id | BIGINT FK | |
 | ticker / stock_name | VARCHAR | |
-| security_type | ENUM NULL | STOCK / ETF — ETF는 원인 분석에서 공시 · 뉴스 수집 생략. CODEF는 단일 종목과 ETF를 구분해 주지 않으므로 CODEF 수집 단계에서는 NULL로 저장하고, 다른 소스(시세 수집에서 쓰는 한투 종목 정보 등)로 채운다. 소스 · 시점 `[구현 시 확정]` |
+| security_type | ENUM NULL | STOCK / ETF — ETF는 원인 분석에서 공시 · 뉴스 수집 생략. CODEF는 단일 종목과 ETF를 구분해 주지 않으므로 CODEF 수집 단계에서는 NULL로 저장한다. **시세 수집 때 NULL인 종목만** 한투 종목정보(`search-stock-info`)의 증권그룹 `scty_grp_id_cd`로 채운다 — `EF` → ETF, `ST` → STOCK, 그 외(ETN 등)는 NULL 유지. CODEF 재동기화는 채워진 값을 유지한다 |
 | quantity | DECIMAL(18,4) | |
 | avg_buy_price / current_price | DECIMAL(18,2) | |
 | eval_amount | DECIMAL(18,2) | **한투 종가 × 같은 기준 시점의 보유수량**. 시세 수집 전까지는 CODEF 평가액(`resValuationAmt`)을 임시로 저장 |
@@ -556,7 +558,7 @@ erDiagram
 > UNIQUE (asset_id, ticker)
 > **갱신**: (asset_id, ticker) 기준 upsert. 완전한 응답(§4.3)일 때만 반영하며, 응답에 없는 종목은 보유 종료로 보고 현재 목록에서 삭제한다(과거 asset_detail_snapshots는 보존). 응답에 **명시된** 수량 · 평가(· 매입)가 모두 0인 종목은 저장하지 않는다. 이 정리 규칙은 CODEF 응답이 완전한 보유 목록이고 빈 목록이 정상 무보유를 뜻한다는 전제에 기대므로, 실제 응답으로 확인한다 `[확인 필요]`.
 > **0 치환 금지**: 종목코드 · 수량 · 평가금액(CODEF 평가액을 임시로 쓰는 동안)은 필수이고, 없거나 해석할 수 없으면 0으로 바꾸지 않고 응답 불완전으로 처리한다. 매입금액 · 손익 · 수익률은 선택 값 — 수익률로 역산할 수 없으면 NULL로 둔다. 한투 종가 적용 후에는 수량 · 종목코드 · 기준일 종가가 필수다.
-> **CODEF 필드 대응**: ticker ← resItemCode, stock_name ← resItemName, quantity ← resQuantity, avg_buy_price ← resAvgPresentAmt(없으면 매입금액 ÷ 수량), current_price ← resPresentAmt(없으면 평가금액 ÷ 수량), eval_amount ← resValuationAmt(임시), profit_loss ← resValuationPL, profit_loss_rate ← resEarningsRate
+> **CODEF 필드 대응**: ticker ← resItemCode, stock_name ← resItemName, quantity ← resQuantity, avg_buy_price ← resAvgPresentAmt(없으면 매입금액 resPurchaseAmount ÷ 수량), current_price ← resPresentAmt(없으면 평가금액 ÷ 수량), eval_amount ← resValuationAmt(임시), profit_loss ← resValuationPL, profit_loss_rate ← resEarningsRate. 종목별 조회 실패는 resResultCode `"0"`(응답 불완전), 해외 종목 판별은 resProductType · resAccountCurrency(04 FR-CN-03)
 
 ### 4.7 asset_snapshots — 일별 자산 기록 ★
 > **자산 가계부의 "내역" 한 줄.** S-02 자산 기록 화면의 원천.
@@ -569,20 +571,23 @@ erDiagram
 | status | ENUM | **COMPLETE / PARTIAL / FAILED** — 수집 상태 |
 | collected_at | DATETIME | 실제 데이터 수집 완료 시각 |
 | total_asset | DECIMAL(18,2) NULL | FAILED면 NULL 가능 |
-| securities_amount / deposit_amount / cash_amount | DECIMAL(18,2) NULL | 자산군별 (수집 성공분 합계) |
+| securities_amount / deposit_amount / cash_amount | DECIMAL(18,2) NULL | 자산군별 수집 성공분 합계. 그 자산군의 대상이 **전부 실패하면 NULL**, 대상 자체가 없으면 0 (실패한 증권 계좌는 증권 · 현금 양쪽의 실패로 센다) |
 | base_snapshot_date | DATE NULL | 비교 기준이 된 **직전 COMPLETE 기록** 날짜 — COMPLETE일 때만 |
 | day_change_amount | DECIMAL(18,2) NULL | base_snapshot_date 대비 총자산 변화 — COMPLETE일 때만 사전 계산 |
-| day_change_rate | DECIMAL(8,4) NULL | |
+| day_change_rate | DECIMAL(8,4) NULL | 퍼센트(1.2345% → 1.2345), HALF_UP 소수 4자리. 직전 total이 0이면 NULL |
 | market_change_amount | DECIMAL(18,2) NULL | **시장가격 영향** — 세부 공식 · 매매일 처리 `[구현 시 확정]` |
 | other_change_amount | DECIMAL(18,2) NULL | **기타 자산 변화** = day_change_amount − market_change_amount (원인 아님) |
 | has_event | BOOLEAN D:false | 그날 사용자 이벤트 존재 — 🔔 아이콘 |
+| created_at / updated_at | DATETIME | 공통(`BaseTimeEntity`) — 재실행 upsert 시각 추적 |
 
 > UNIQUE (user_id, snapshot_date)
 > 비교 · 감지 · 하이라이트 · 목표 · 결산 · 추이 조회는 **`status = COMPLETE`만** 사용한다. PARTIAL · FAILED 행은 이력 · 오류 확인용이다.
-> **판정 대상(필수 자산)**: 그 날짜 기준 기존 연동 계좌 + 삭제되지 않은 수기 자산. 증권 계좌는 ACTIVE뿐 아니라 수집이 막힌 AUTH_FAILED · EXPIRED도 분모에 포함한다(실제 CODEF 호출은 ACTIVE만). DISCONNECTED는 해지 이후 날짜에서 제외한다. 대상 시각 이후 새로 연결된 계좌를 누락으로 보지 않는 기준(대상 시각 · 연결 시각)과 수기 자산 변경분의 반영 시점은 `[구현 시 확정]`.
+> **판정 대상(필수 자산)**: 기준 시각 T(= 배치 시작 시각) 이전에 만든 연동 계좌 + 삭제되지 않은 수기 자산. 증권 계좌는 ACTIVE뿐 아니라 수집이 막힌 AUTH_FAILED · EXPIRED도 분모에 포함한다(실제 CODEF 호출은 ACTIVE만). T 시점에 DISCONNECTED인 연동은 제외한다(해지 시각 컬럼이 없어 T 시점 상태로 판정). T 이후 연결된 계좌는 다음 실행부터 대상이다. 수기 자산은 **T 시점의 balance**를 그날 값으로 쓰고, T 이후 수정분은 다음 거래일에 반영한다(이자 반영 등 가치 갱신 방식은 01 §14 #20).
+> **판정 단위**: 증권 계좌(실패하면 예수금 · 종목 전체가 실패 1건), 성공한 계좌의 예수금 1건 + 종목별 1건, 수기 자산별 1건. 거래정지 종목은 기준일 이전 최신 종가(stock_prices)로 평가해 성공으로 보고, 그 종가가 없으면 실패다. CODEF 조회 결과 없음(§4.3) · 동기화 락 재시도 실패는 그 계좌 누락이다.
 > **상태 조건**: COMPLETE = 필수 대상이 모두 반영되고 종목코드 · 수량 · 예수금 등 필수 데이터가 유효하며 필요한 일별 종가를 같은 기준일로 확보해 합계 계산에 성공. PARTIAL = 일부 누락이지만 유효한 부분 기록 가능. FAILED = 유효한 기록이 성립하지 않음. 대상 자산이 하나도 없으면 COMPLETE(공집합)를 만들지 않고 "기록할 자산 없음"으로 구분한다.
-> **수동 새로고침은 스냅샷을 만들거나 덮어쓰지 않는다** — 현재 assets · holdings만 갱신한다. 최초 연동의 첫 기록(§11.1)은 별개다.
-> 첫 행은 **계좌 연동일**이다. 과거 날짜 행을 소급 생성하지 않는다 (v4.1: `is_backfilled` 삭제). 연동일 행의 생성 시점(연동 직후 / 당일 배치) `[구현 시 확정]`
+> **수동 새로고침은 스냅샷을 만들거나 덮어쓰지 않는다** — 현재 assets · holdings만 갱신한다.
+> **첫 행은 연동 뒤 첫 정기 배치일**이다 — 스냅샷은 정기 배치에서만 만들고 연동 직후에는 만들지 않는다(장중 가격 · 같은 날 UNIQUE 충돌 방지). 수기 자산만 있는 사용자도 기록한다. 과거 날짜 행을 소급 생성하지 않는다 (v4.1: `is_backfilled` 삭제).
+> **같은 날 재실행**: 기존 행이 COMPLETE면 PARTIAL · FAILED로 덮어쓰지 않는다. 그 외(같은 등급 · 더 좋은 결과)는 덮어쓰고, 이번에 실패한 자산 · 종목의 기존 상세 행(§4.8)은 지운다.
 
 ### 4.8 asset_detail_snapshots — 자산별 일별 기록
 | 컬럼 | 타입 | 설명 |
@@ -592,9 +597,10 @@ erDiagram
 | ticker | VARCHAR(20) NULL | 종목 단위 기록 시 |
 | snapshot_date | DATE | |
 | amount | DECIMAL(18,2) | 잔액 또는 평가금액 |
-| day_change_amount | DECIMAL(18,2) | 날짜 펼침 상세용 |
+| day_change_amount | DECIMAL(18,2) NULL | 날짜 펼침 상세용 — 총자산과 같은 기준일(**직전 COMPLETE 날짜**)의 같은 (asset_id, ticker) 행 대비. 직전 COMPLETE가 없거나 그날 행이 없으면 NULL(0으로 채우지 않음) |
+| created_at / updated_at | DATETIME | 공통(`BaseTimeEntity`) |
 
-> UNIQUE (asset_id, ticker, snapshot_date)
+> UNIQUE (asset_id, ticker, snapshot_date) — ticker NULL 행(증권 계좌 예수금 · 수기 자산)은 MySQL UNIQUE가 NULL끼리의 중복을 막지 못하므로, 저장 서비스가 조회 후 갱신(upsert)으로 중복을 막는다
 > 수집에 실패한 자산은 그날 행을 만들지 않는다 — 직전 값을 복사하지 않는다
 
 ### 4.9 stock_prices — 종목 일별 시세
@@ -603,11 +609,14 @@ erDiagram
 | id | BIGINT PK | |
 | ticker / stock_name | VARCHAR | |
 | trade_date | DATE | |
-| close_price / prev_close_price | DECIMAL(18,2) | |
-| change_rate | DECIMAL(8,4) | **전 거래일 대비 변동률** — API 제공값 사용 우선 검토, 기업행사 기준가 반영 여부 `[확인 필요]` |
+| close_price | DECIMAL(18,2) | 원주가 종가(한투 `FID_ORG_ADJ_PRC=0`, 수정주가 미반영) — 평가금액 = 실제 종가 × 실제 수량 |
+| prev_close_price | DECIMAL(18,2) | 직전 거래일 종가(참고용). 응답에 직전 거래일 행이 없으면(상장 첫날 · 소급의 가장 오래된 날) 그 날짜 행을 만들지 않는다 |
+| change_rate | DECIMAL(8,4) | **전 거래일 대비 변동률** — 한투 `prdy_ctrt` 그대로(기준가 대비 — 액면분할 · 권리락 반영). 직접 계산하지 않으므로 분할일 등에는 `종가 ÷ 전일 종가 − 1`과 다를 수 있다(버그 아님) |
 | volume | BIGINT | |
+| created_at / updated_at | DATETIME | 공통(`BaseTimeEntity`) |
 
 > UNIQUE (ticker, trade_date) — **사용자와 무관한 공유 데이터**, 보유 종목 합집합만 수집
+> 장 마감 가드(설정 `assetory.market.close-guard-time`, 기본 15:40) 전에는 그날 행을 저장하지 않는다 — 장중에는 종가 칸에 현재가가 온다. 기준일 행이 없고 거래정지(`tr_stop_yn=Y`)면 행을 만들지 않고, 일별 기록은 직전 종가로 평가한다(§4.7)
 
 ### 4.10 macro_indicators — 지수 · 거시지표
 | 컬럼 | 타입 | 설명 |
@@ -991,7 +1000,7 @@ C 처리 → 조회 → 있음 → 재사용
 CODEF 연동(증권 계좌 assets 행 생성) → 연동 저장 트랜잭션 커밋
   → 커밋 후 비동기 수집 → assets · holdings 저장 → sync_jobs(BACKFILL) — 수집이 실패해도 연동은 유지
      (deposit_details는 CODEF 수집이 아니라 수기 입력)
-  → 연동일 asset_snapshots 1건 (수집 상태 판정) — 사용자 자산 기록의 시작
+  (asset_snapshots는 여기서 만들지 않는다 — 연동 뒤 첫 정기 배치(§11.2)가 첫 기록)
   → 보유 종목 최근 30일 시세 소급 → stock_prices
   → |change_rate| ≥ 5% 날짜마다 stock_event_analyses 조회 · 생성
   → user_market_events 생성 (is_backfilled = true, notify_status = NONE, 금액 필드 NULL)
@@ -1002,18 +1011,23 @@ CODEF 연동(증권 계좌 assets 행 생성) → 연동 저장 트랜잭션 커
 
 ### 11.2 일별 자산 기록 (16:00)
 ```
-CODEF 증권 수집(ACTIVE 연동만) → holdings · assets 갱신 → sync_jobs(target_date) 기록
+기준 시각 T · snapshotDate 고정
+  → 장 마감 가드 확인 — 가드 전: 장 마감 지연일이면 미룸(지연 실행 16:50), 일반일이면 중단
+  → 거래일 판정(주말 + 한투 기준 종목 최신 거래일) — 휴장이면 종료, 판정 불가(UNKNOWN)면 중단(휴장으로 처리하지 않음)
+  → 판정 대상 고정: T 이전 생성 · 해지 아님 증권 연동, 활성 수기 자산(T 시점 balance)
+CODEF 증권 수집(ACTIVE 연동만, AUTH_FAILED · EXPIRED는 호출 없이 누락) → holdings · assets 갱신 → sync_jobs(target_date) 기록
   (예적금 · 입출금은 수기 입력 — CODEF 수집 대상 아님)
-  → 보유 종목 합집합 시세 → stock_prices
+  → 보유 종목 합집합 시세 → stock_prices (+ security_type이 NULL인 종목 STOCK/ETF 판별)
   → 지수 · 지표 → macro_indicators
   → 평가금액 = 한투 종가 × 같은 기준 시점의 보유수량
   → 수집 결과로 status 판정: 전부 성공 COMPLETE / 일부 누락 PARTIAL / 기록 불가 FAILED
   → asset_detail_snapshots (성공한 자산만) / asset_snapshots
-  → COMPLETE면 직전 COMPLETE 기록 대비 day_change · market_change · other_change 사전 계산
+  → COMPLETE면 직전 COMPLETE 기록 대비 day_change 사전 계산 (market_change · other_change는 공식 확정 전까지 NULL — 01 §14 #1 · #2)
+  → 사용자 단위 실패 격리: 한 사용자 처리 중 예외는 그 사용자 행을 만들지 않고 다음 사용자로 넘어간다(FAILED로 바꾸지 않음)
 ```
 > **판정 입력은 이번 배치 실행의 결과만** — 계좌별 수집 결과(또는 이번 실행의 sync_jobs.id 집합)로 상태를 판정하고, 평가 · 합산도 이번 실행에서 확보한 결과로 한다. 수동 새로고침으로 나중에 바뀐 현재 holdings를 다시 읽어 섞지 않는다. 새 테이블 · 컬럼 없이 실행 결과를 넘기는 방식을 우선한다.
 > **동기화 락 충돌**: 배치가 수집을 시작한 계좌의 수동 새로고침은 "이미 동기화 중"으로 거절한다. 배치가 락을 얻지 못하면 짧게 대기한 뒤 **1회 재시도**한다(락 TTL 300초를 통째로 기다리지 않음). 재시도도 실패하면 그 계좌는 이번 실행의 누락으로 처리해 PARTIAL / FAILED에 반영한다 — 정기 배치를 조용히 건너뛰거나 이전 값으로 COMPLETE를 만들지 않는다. 16:00 전후 수동 새로고침 차단 구간은 고정하지 않는다.
-> 이 두 규칙은 공식 스냅샷 배치를 구현할 때 적용한다. 현재 계정 동기화 배치는 락 충돌 계정을 건너뛰고 로그만 남긴다(스냅샷 미구현).
+> 판정 입력은 **동기화가 SUCCESS인 계좌만** 직후 DB의 assets · holdings 값을 읽는다 — 실패 · 결과 없음 · 락 실패 계좌는 DB 값을 읽지 않는다(이월 방지). 락 재시도 대기는 설정 `assetory.sync.batch.lock-retry-wait-ms`(기본 10초).
 
 ### 11.3 급등락 감지 → 공유 분석 → 알림
 ```
@@ -1090,10 +1104,12 @@ ACTIVE 목표 순회 (당일 asset_snapshots가 COMPLETE인 사용자만)
 
 | 메트릭 | 타입 | 태그 |
 |---|---|---|
-| `batch.step.duration` | Timer | step (collect · detect · analyze · notify · monthly) |
+| `batch.step.duration` | Timer | step (collect · detect · analyze · notify · monthly) — collect는 일일 배치 전체. 하위 단계(codef · price · snapshot) 분리는 제안 |
 | `batch.close_to_notify.duration` | Timer | — |
-| `external.api.calls` | Counter | provider, result (success · fail) |
-| `external.api.latency` | Timer | provider |
+| `external.api.calls` | Counter | provider, api (token · daily-price · stock-info), result (success · fail) |
+| `external.api.latency` | Timer | provider, api |
+| `market.price.collect` | Counter | result (collected · halted · failed) — 종목별 시세 수집 결과 |
+| `batch.run` | Counter | batch (daily-asset), result (completed · holiday · aborted · deferred) — 판정 불가 · 장 마감 전 실행 중단을 잡는다 |
 | `llm.calls` | Counter | purpose (cause · goal · monthly), result |
 | `llm.tokens` | Counter | purpose, kind (prompt · completion) |
 | `analysis.cache` | Counter | result (**hit** · miss) — 공유 캐시 적중률 |

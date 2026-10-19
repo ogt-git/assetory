@@ -14,6 +14,7 @@
 ## 3. 프로젝트 구조
 - `backend/` Spring Boot · `frontend/` React(Vite) · `docs/` 설계 문서 · `docker-compose.yml` 로컬 MySQL · Redis
 - 백엔드: `com.project.assetory.<도메인>/{controller,service,repository,domain,dto,exception}` 도메인 우선 분리. 공통은 `global/`.
+  - 현재 도메인: `auth` · `user`(회원 · 인증), `connect`(기관 연동 · CODEF), `asset`(자산 · 보유 종목), `market`(시장 데이터 — 한투 `kis` 클라이언트 · `stock_prices` · 거래일 판정), `snapshot`(일별 자산 기록 · 일일 배치)
 - 프론트: `src/app`(라우터 · 프로바이더), `src/features/<도메인>`, `src/pages/<화면>`, `src/shared`.
 
 | 찾는 것 | 문서 |
