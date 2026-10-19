@@ -1,0 +1,13 @@
+{
+  "_comment": "테스트 전용 더미 값 — E2E 사용자 U4의 어제까지 수집된 잔고(오늘은 실패). 이 값이 오늘 스냅샷에 들어가면 이월 버그",
+  "result": {"code": "CF-00000", "message": "성공", "extraMessage": ""},
+  "data": {
+    "resAccount": "00000000000",
+    "resDepositReceived": "999,999",
+    "resItemList": [
+      {"resProductType": "주식", "resItemName": "SK하이닉스", "resItemCode": "000660", "resQuantity": "4",
+       "resPresentAmt": "200,000", "resPurchaseAmount": "720,000", "resValuationAmt": "800,000", "resValuationPL": "80,000",
+       "resEarningsRate": "11.11", "resAccountCurrency": "KRW"}
+    ]
+  }
+}
