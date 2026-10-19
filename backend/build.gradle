@@ -54,5 +54,23 @@ dependencies {
 }
 
 tasks.named('test') {
-	useJUnitPlatform()
+	// 한투 실호출 검증(@Tag("kis-live"))은 기본 테스트에서 제외 — kisLiveTest로 따로 실행
+	useJUnitPlatform {
+		excludeTags 'kis-live'
+	}
+}
+
+// 한투 실호출 검증 — KIS_APP_KEY · KIS_APP_SECRET 환경변수가 있을 때만 실행된다 (docs/ops/kis-verification.md)
+tasks.register('kisLiveTest', Test) {
+	description = '한투(KIS) Open API 실호출 검증'
+	group = 'verification'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform {
+		includeTags 'kis-live'
+	}
+	testLogging {
+		showStandardStreams = true
+	}
+	outputs.upToDateWhen { false }
 }
