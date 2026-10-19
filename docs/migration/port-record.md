@@ -40,7 +40,7 @@
 | 증권 자산 수집 | `service/CodefSyncService` (증권 부분) | `connect/codef/stock/StockAssetParser`, `connect/service/StockSyncService` | 수정 — 파서 분리, 환율 제거, 누락값은 0으로 채우지 않고 실패, 소유자 토큰 락, 재시도 유형 제한 |
 | 최초 연동 수집 | `service/CodefSyncService` (연동 직후 수집) | `connect/event/*` | 수정 — 커밋 후 비동기 이벤트 |
 | 수동 새로고침 | `service/CodefSyncService`, `controller/CodefController` | `connect/service/StockRefreshService`, `ConnectController` | 수정 — 남은 초 응답, 409, 쿨다운 반환 규칙 |
-| 배치 동기화 | `service/CodefBatchService` | `connect/service/StockSyncBatchService`, `StockSyncBatchScheduler` | 수정 — ACTIVE만, 설정값으로 켜고 끔(기본 비활성), 연동 비활성화·이중 재시도 제거 |
+| 배치 동기화 | `service/CodefBatchService` | ~~`connect/service/StockSyncBatchService`~~, `StockSyncBatchScheduler` | 수정 — ACTIVE만, 설정값으로 켜고 끔(기본 비활성), 연동 비활성화·이중 재시도 제거. **6주차: 일일 자산 기록 배치(`snapshot/service/DailyAssetBatchService`)가 계정마다 동기화를 직접 호출하도록 대체 — `StockSyncBatchService`는 삭제, 스케줄러는 일일 배치를 트리거** |
 | 자산 엔티티 | `domain/AssetAccount`, `AssetItem`, `ManualAsset` | `asset/domain/Asset`, `Holding`, `DepositDetail` | 수정 — ERD 기준 재작성 |
 | 수기 자산 CRUD | `service/ManualAssetService`, `controller/AssetController` | `asset/service/ManualAssetService`, `asset/controller/AssetController` | 수정 — 유형 3개, 예적금 상세 필수, soft delete, 연동 자산 수정 거부 |
 | 자산 조회 | `service/AssetService` (증권 조회) | `asset/service/AssetQueryService` (`GET /api/assets`) | 수정 — 증권 + 수기 통합, 자산군별 합계, 불완전 표시 |

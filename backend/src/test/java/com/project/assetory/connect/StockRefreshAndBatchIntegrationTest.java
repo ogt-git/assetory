@@ -4,7 +4,6 @@ import com.project.assetory.asset.domain.Asset;
 import com.project.assetory.asset.repository.AssetRepository;
 import com.project.assetory.connect.domain.BusinessType;
 import com.project.assetory.connect.domain.ConnectedAccount;
-import com.project.assetory.connect.domain.ConnectedAccountStatus;
 import com.project.assetory.connect.domain.SyncJob;
 import com.project.assetory.connect.domain.SyncJobStatus;
 import com.project.assetory.connect.domain.SyncJobType;
@@ -12,7 +11,6 @@ import com.project.assetory.connect.repository.ConnectedAccountRepository;
 import com.project.assetory.connect.repository.InstitutionRepository;
 import com.project.assetory.connect.repository.SyncJobRepository;
 import com.project.assetory.connect.service.StockSyncBatchScheduler;
-import com.project.assetory.connect.service.StockSyncBatchService;
 import com.project.assetory.global.crypto.HashUtil;
 import com.project.assetory.support.IntegrationTestSupport;
 import com.project.assetory.user.domain.User;
@@ -29,7 +27,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
 
@@ -51,7 +48,6 @@ class StockRefreshAndBatchIntegrationTest extends IntegrationTestSupport {
     @Autowired ConnectedAccountRepository connectedAccountRepository;
     @Autowired AssetRepository assetRepository;
     @Autowired SyncJobRepository syncJobRepository;
-    @Autowired StockSyncBatchService stockSyncBatchService;
     @Autowired StringRedisTemplate redis;
     @Autowired TransactionTemplate transactionTemplate;
     @Autowired ApplicationContext context;
@@ -148,45 +144,6 @@ class StockRefreshAndBatchIntegrationTest extends IntegrationTestSupport {
     // ---------- 배치 ----------
 
     @Test
-    @DisplayName("배치 중 한 계정이 실패해도 나머지 계정은 동기화된다 — 계정별 sync_jobs")
-    void batchContinuesAfterFailure() {
-        Long ok1 = newStockAccount("0240");
-        Long broken = newStockAccount("0243");
-        Long ok2 = newStockAccount("0218");
-        failFor(broken);
-
-        StockSyncBatchService.BatchResult result = stockSyncBatchService.syncAllActive();
-
-        assertThat(result.total()).isGreaterThanOrEqualTo(3);
-        assertThat(lastJobStatus(ok1)).isEqualTo(SyncJobStatus.SUCCESS);
-        assertThat(lastJobStatus(ok2)).isEqualTo(SyncJobStatus.SUCCESS);
-        assertThat(lastJobStatus(broken)).isEqualTo(SyncJobStatus.FAILED);
-        assertThat(connectedAccountRepository.findById(broken).orElseThrow().getStatus())
-                .isEqualTo(ConnectedAccountStatus.AUTH_FAILED); // 인증 오류 → 상태 전이 (비활성화·삭제 아님)
-    }
-
-    @Test
-    @DisplayName("배치는 ACTIVE 연동만 수집하고, 다른 동기화가 진행 중인 계정은 건너뛴다")
-    void batchSkipsInactiveAndLocked() {
-        Long active = newStockAccount("0240");
-        Long expired = newStockAccount("0243");
-        Long locked = newStockAccount("0218");
-        transactionTemplate.executeWithoutResult(s ->
-                connectedAccountRepository.findById(expired).orElseThrow().changeStatus(ConnectedAccountStatus.EXPIRED));
-        redis.opsForValue().set("codef:lock:" + locked, "manual-worker");
-        try {
-            stockSyncBatchService.syncAllActive();
-
-            assertThat(lastJobStatus(active)).isEqualTo(SyncJobStatus.SUCCESS);
-            assertThat(jobs(expired)).isEmpty();
-            assertThat(jobs(locked)).isEmpty();
-            assertThat(redis.opsForValue().get("codef:lock:" + locked)).isEqualTo("manual-worker");
-        } finally {
-            redis.delete("codef:lock:" + locked);
-        }
-    }
-
-    @Test
     @DisplayName("배치 트리거는 기본 비활성 — assetory.sync.batch.enabled가 없으면 스케줄러 빈이 없다")
     void batchSchedulerDisabledByDefault() {
         assertThat(context.getBeanNamesForType(StockSyncBatchScheduler.class)).isEmpty();
@@ -212,27 +169,7 @@ class StockRefreshAndBatchIntegrationTest extends IntegrationTestSupport {
         });
     }
 
-    // 해당 연동 계정의 connectedId로 온 요청만 인증 실패로 응답
-    @SuppressWarnings("unchecked")
-    private void failFor(Long connectedAccountId) {
-        String connectedId = connectedAccountRepository.findById(connectedAccountId).orElseThrow().getConnectedId();
-        try {
-            when(codefApiClient.requestProduct(anyString(), any())).thenAnswer(inv -> {
-                HashMap<String, Object> params = inv.getArgument(1);
-                return connectedId.equals(params.get("connectedId")) ? AUTH_FAIL : successBody;
-            });
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
     private List<SyncJob> jobs(Long connectedAccountId) {
         return syncJobRepository.findAllByConnectedAccountIdOrderByIdAsc(connectedAccountId);
-    }
-
-    private SyncJobStatus lastJobStatus(Long connectedAccountId) {
-        List<SyncJob> jobs = jobs(connectedAccountId);
-        assertThat(jobs).isNotEmpty();
-        return jobs.get(jobs.size() - 1).getStatus();
     }
 }
