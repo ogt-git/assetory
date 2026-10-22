@@ -1,10 +1,9 @@
 package com.project.assetory;
 
+import com.project.assetory.support.IntegrationTestSupport;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
-class AssetoryApplicationTests {
+class AssetoryApplicationTests extends IntegrationTestSupport {
 
 	@Test
 	void contextLoads() {

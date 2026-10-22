@@ -1,0 +1,50 @@
+-- institutions 초기 데이터 (docs/05 §4.1). 기동할 때마다 실행되므로 멱등하게 넣는다.
+-- id를 고정해 두어야 재실행 때 AUTO_INCREMENT가 계속 늘지 않는다. 새 기관은 끝 번호 다음으로 추가한다.
+-- CODEF 개발자 문서 "기관 목록"과 일치 (증권사 22개, 은행 20개 — 카카오뱅크·토스뱅크는 CODEF 미지원). 이름은 CODEF 공식 표기
+-- 테스트 InstitutionSeedTest가 이 목록을 고정한다
+
+INSERT INTO institutions (id, codef_org_code, name, institution_type) VALUES
+    (1, '0209', '유안타증권', 'SECURITIES'),
+    (2, '0218', 'KB증권', 'SECURITIES'),
+    (3, '0225', 'IBK투자증권', 'SECURITIES'),
+    (4, '0227', '다올투자증권', 'SECURITIES'),
+    (5, '0238', '미래에셋증권', 'SECURITIES'),
+    (6, '0240', '삼성증권', 'SECURITIES'),
+    (7, '0243', '한국투자증권', 'SECURITIES'),
+    (8, '0247', 'NH투자증권', 'SECURITIES'),
+    (9, '0261', '교보증권', 'SECURITIES'),
+    (10, '0262', '하이투자증권', 'SECURITIES'),
+    (11, '0264', '키움증권', 'SECURITIES'),
+    (12, '0265', 'LS증권', 'SECURITIES'),
+    (13, '0266', 'SK증권', 'SECURITIES'),
+    (14, '0267', '대신증권', 'SECURITIES'),
+    (15, '0269', '한화투자증권', 'SECURITIES'),
+    (16, '0270', '하나금융투자', 'SECURITIES'),
+    (17, '0278', '신한금융투자', 'SECURITIES'),
+    (18, '0279', 'DB금융투자', 'SECURITIES'),
+    (19, '0280', '유진투자증권', 'SECURITIES'),
+    (20, '0287', '메리츠종합금융증권', 'SECURITIES'),
+    (21, '1247', 'NH투자증권 나무', 'SECURITIES'),
+    (22, '1267', '대신증권 크레온', 'SECURITIES'),
+    (23, '0002', '산업은행', 'BANK'),
+    (24, '0003', '기업은행', 'BANK'),
+    (25, '0004', '국민은행', 'BANK'),
+    (26, '0007', '수협은행', 'BANK'),
+    (27, '0011', '농협은행', 'BANK'),
+    (28, '0020', '우리은행', 'BANK'),
+    (29, '0023', 'SC은행', 'BANK'),
+    (30, '0027', '씨티은행', 'BANK'),
+    (31, '0031', '대구은행', 'BANK'),
+    (32, '0032', '부산은행', 'BANK'),
+    (33, '0034', '광주은행', 'BANK'),
+    (34, '0035', '제주은행', 'BANK'),
+    (35, '0037', '전북은행', 'BANK'),
+    (36, '0039', '경남은행', 'BANK'),
+    (37, '0045', '새마을금고', 'BANK'),
+    (38, '0048', '신협은행', 'BANK'),
+    (39, '0071', '우체국', 'BANK'),
+    (40, '0081', 'KEB하나은행', 'BANK'),
+    (41, '0088', '신한은행', 'BANK'),
+    (42, '0089', 'K뱅크', 'BANK')
+AS new
+ON DUPLICATE KEY UPDATE name = new.name, institution_type = new.institution_type;

@@ -1,3 +1,88 @@
 spring:
   application:
     name: assetory
+
+  profiles:
+    default: local
+
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # 초기 데이터(data.sql) — 기동할 때마다 실행되며 멱등하게 작성한다
+  sql:
+    init:
+      mode: always
+
+  jpa:
+    open-in-view: false
+    # data.sql(초기 데이터)은 Hibernate가 테이블을 만든 뒤에 실행
+    defer-datasource-initialization: true
+    hibernate:
+      ddl-auto: none   # 프로필별로 지정 (local: update, prod: validate)
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: Asia/Seoul
+
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          # 외부 API 타임아웃 10초 (NFR-PF-05)
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
+
+# 암호화 키 — Base64 인코딩된 32바이트. 없거나 형식이 틀리면 기동 실패 (AesEncryptionUtil)
+assetory:
+  crypto:
+    aes-key: ${ASSETORY_AES_KEY:}
+  # 인증 메일 발신 주소 — 없으면 MAIL_USERNAME 사용. local에서 log-only: true면 실제 발송 대신 로그 출력
+  mail:
+    from: ${MAIL_FROM:${MAIL_USERNAME:}}
+    log-only: false
+  # 증권 동기화 배치 — 기본 비활성. cron은 영업일 16:00 (04 §2)
+  sync:
+    batch:
+      enabled: ${ASSETORY_SYNC_BATCH_ENABLED:false}
+      cron: ${ASSETORY_SYNC_BATCH_CRON:0 0 16 * * MON-FRI}
+
+# JWT — 서명 키는 32바이트 이상. 만료는 FR-AU-02 (AT 30분, RT 14일)
+jwt:
+  secret: ${JWT_SECRET:}
+  expiration-ms: ${JWT_EXPIRATION_MS:1800000}
+  refresh-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:1209600000}
+
+# CODEF API — service-type 0: 정식, 1: 데모 (Q-5: 데모로 진행)
+codef:
+  client-id: ${CODEF_CLIENT_ID:}
+  client-secret: ${CODEF_CLIENT_SECRET:}
+  public-key: ${CODEF_PUBLIC_KEY:}
+  service-type: ${CODEF_SERVICE_TYPE:1}
+
+# CORS — 쉼표로 구분한 허용 origin
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS}
+
+# Refresh Token 쿠키 — 프로필별로 덮어씀 (local: Secure false, prod: SameSite None)
+app:
+  cookie:
+    secure: true
+    same-site: Lax
