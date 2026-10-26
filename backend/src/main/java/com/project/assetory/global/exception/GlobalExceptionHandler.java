@@ -28,6 +28,7 @@ import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -209,6 +210,13 @@ public class GlobalExceptionHandler {
         log.error("[Mail] 이메일 발송 실패 error={}", e.getClass().getSimpleName());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(ApiResponse.error("이메일 발송에 실패했습니다. 서버 메일 설정을 확인해주세요.", "MAIL_SEND_FAILED"));
+    }
+
+    // 매핑되지 않은 경로 — 500으로 흘리지 않고 404
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<?>> handleNoResource(NoResourceFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(ErrorCode.RESOURCE_NOT_FOUND.getMessage(), ErrorCode.RESOURCE_NOT_FOUND.name()));
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)

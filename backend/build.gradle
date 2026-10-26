@@ -25,6 +25,10 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 	implementation 'org.springframework.boot:spring-boot-starter-mail'
 
+	// 운영 지표 — 관리 포트에서 health · prometheus만 노출 (FR-OP-01, NFR-SE-08). 버전은 Boot BOM 관리
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+
 	// CODEF API
 	implementation 'io.codef.api:easycodef-java:1.0.6'
 
