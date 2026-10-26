@@ -3,12 +3,15 @@ package com.project.assetory.support;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.assetory.auth.mail.AuthMailSender;
 import com.project.assetory.connect.codef.CodefApiClient;
+import org.junit.jupiter.api.AfterEach;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.MediaType;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -18,6 +21,7 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.util.Map;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.eq;
@@ -51,6 +55,27 @@ public abstract class IntegrationTestSupport {
     @Autowired protected ObjectMapper objectMapper;
     @MockitoBean protected AuthMailSender authMailSender;
     @MockitoBean protected CodefApiClient codefApiClient;
+    @Autowired @Qualifier("codefSyncExecutor") private ThreadPoolTaskExecutor codefSyncExecutor;
+
+    // 증권 연결 성공 뒤 비동기 최초 수집(InitialSyncListener)이 테스트 메서드보다 오래 돌면, 다음 테스트의 스텁 설정과
+    // 같은 CodefApiClient 목을 동시에 호출해 스텁이 다른 메서드에 붙는다(Mockito 스텁은 스레드 안전하지 않음) → 간헐 실패.
+    // 목 초기화(@MockitoBean reset — @AfterEach 뒤에 실행)보다 먼저 수집 executor가 빌 때까지 기다린다
+    @AfterEach
+    void awaitCodefSyncIdle() throws InterruptedException {
+        ThreadPoolExecutor pool = codefSyncExecutor.getThreadPoolExecutor();
+        long deadline = System.nanoTime() + 10_000_000_000L;
+        int idleChecks = 0;
+        // 큐에서 꺼낸 직후 · 실행 표시 전의 짧은 틈을 놓치지 않게 연속 2회 빈 상태를 확인한다
+        while (idleChecks < 2) {
+            if (System.nanoTime() > deadline) {
+                throw new AssertionError("CODEF 수집 비동기 작업이 10초 안에 끝나지 않았습니다 active="
+                        + pool.getActiveCount() + " queued=" + pool.getQueue().size());
+            }
+            boolean idle = pool.getActiveCount() == 0 && pool.getQueue().isEmpty();
+            idleChecks = idle ? idleChecks + 1 : 0;
+            Thread.sleep(20);
+        }
+    }
 
     protected String uniqueEmail() {
         return "user-" + UUID.randomUUID().toString().substring(0, 8) + "@example.com";

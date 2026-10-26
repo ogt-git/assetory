@@ -1,0 +1,5 @@
+{
+  "_comment": "테스트 전용 — 인증과 무관한 영구 오류(PERMANENT_ERROR). 연동 상태는 유지된다",
+  "result": {"code": "CF-04000", "message": "테스트 전용 실패", "extraMessage": ""},
+  "data": {}
+}

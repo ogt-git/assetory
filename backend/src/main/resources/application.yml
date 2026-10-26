@@ -60,11 +60,45 @@ assetory:
   mail:
     from: ${MAIL_FROM:${MAIL_USERNAME:}}
     log-only: false
-  # 증권 동기화 배치 — 기본 비활성. cron은 영업일 16:00 (04 §2)
+  # 한투(KIS) Open API — 시세 조회 전용 (FR-MK-01). 키 · 시크릿은 환경변수로만. 비어 있어도 기동되고 호출 시 실패한다
+  kis:
+    # 실전 도메인 기본(호출 한도가 높음). 모의: https://openapivts.koreainvestment.com:29443 + KIS_CALL_INTERVAL_MS=500
+    base-url: ${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}
+    app-key: ${KIS_APP_KEY:}
+    app-secret: ${KIS_APP_SECRET:}
+    # 호출 간 최소 간격 — 공식 예제 기준 실전 50ms(약 20건/초)
+    call-interval-ms: ${KIS_CALL_INTERVAL_MS:50}
+    # 외부 API 타임아웃 10초 (NFR-PF-05)
+    connect-timeout: 10s
+    read-timeout: 10s
+    # 토큰(유효 1일)을 만료 이 시간 전에 새로 받는다 — 배치 도중 만료 방지. 발급은 하루 1회 수준으로 유지된다
+    token-refresh-margin: ${KIS_TOKEN_REFRESH_MARGIN:10m}
+    # EGW00201(초당 거래건수 초과)만 재시도
+    rate-limit:
+      max-retries: ${KIS_RATE_LIMIT_MAX_RETRIES:2}
+      backoff-ms: ${KIS_RATE_LIMIT_BACKOFF_MS:1000}
+  # 시장 데이터 수집 (FR-MK-01 · 06)
+  market:
+    # 거래일 판정 기준 종목 — 최신 거래일자가 오늘이면 거래일 (01 §14 #23 (c)안)
+    reference-ticker: ${ASSETORY_MARKET_REFERENCE_TICKER:005930}
+    # 이 시각 전에는 오늘 행을 종가로 저장하지 않는다 — 15:30 종가 단일가 + 여유 10분 (장중에는 종가 칸에 현재가, V4)
+    close-guard-time: ${ASSETORY_MARKET_CLOSE_GUARD_TIME:15:40}
+    # 시세 호출 실패가 연속 이 횟수면 남은 종목 호출을 멈춘다 (서킷 브레이커 대신)
+    max-consecutive-failures: ${ASSETORY_MARKET_MAX_CONSECUTIVE_FAILURES:5}
+    # 장 마감 지연일(수능일 — 정규장 1시간 순연, 16:30 마감). 콤마 구분. 이 날은 아래 지연 가드를 쓰고 16:00 배치는 건너뛴다
+    # TODO(01-§14 신규 제안): 2027학년도 수능 2026-11-19 확정, 그날 증시 매매시간은 KRX 공지로 확인 필요
+    late-close-dates: ${ASSETORY_MARKET_LATE_CLOSE_DATES:2026-11-19}
+    # 장 마감 지연일의 가드 — 16:30 마감 + 여유 10분
+    late-close-guard-time: ${ASSETORY_MARKET_LATE_CLOSE_GUARD_TIME:16:40}
+  # 일일 자산 기록 배치(거래일 판정 → CODEF → 시세 → 스냅샷) — 기본 비활성. cron은 영업일 16:00 (04 §2)
   sync:
     batch:
       enabled: ${ASSETORY_SYNC_BATCH_ENABLED:false}
       cron: ${ASSETORY_SYNC_BATCH_CRON:0 0 16 * * MON-FRI}
+      # 장 마감 지연일 전용 실행 — 지연 가드(16:40) 이후. 지연일이 아니면 아무것도 하지 않는다
+      late-close-cron: ${ASSETORY_SYNC_BATCH_LATE_CLOSE_CRON:0 50 16 * * MON-FRI}
+      # 동기화 락 충돌(수동 새로고침 진행 중) 시 1회 재시도 전 대기 — CODEF 1회 호출 타임아웃(10초)만큼 (05 §11.2)
+      lock-retry-wait-ms: ${ASSETORY_SYNC_BATCH_LOCK_RETRY_WAIT_MS:10000}
 
 # JWT — 서명 키는 32바이트 이상. 만료는 FR-AU-02 (AT 30분, RT 14일)
 jwt:

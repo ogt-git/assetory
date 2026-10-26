@@ -145,7 +145,9 @@ public class StockSyncService {
             CodefErrorType type = CodefErrorClassifier.classify(resultCode);
             if (type == CodefErrorType.EMPTY_RESULT) {
                 // 조회 결과 없음 — 정상으로 보되 기존 데이터는 건드리지 않는다 (원본 동작)
-                return succeed(jobId, connectedAccountId, null, null, 0);
+                // sync_jobs는 SUCCESS 그대로, 결과에만 EMPTY_RESULT를 남긴다 — 일별 스냅샷은 이 계좌를 누락으로 본다(DB의 예전 값을 쓰지 않음)
+                SyncResult result = succeed(jobId, connectedAccountId, null, null, 0);
+                return new SyncResult(result.syncJobId(), result.status(), result.collectedCount(), CodefErrorType.EMPTY_RESULT);
             }
             log.warn("[StockSync] CODEF 실패 connectedAccountId={} code={} type={}", connectedAccountId, resultCode, type);
             return fail(jobId, connectedAccountId, type, type.getUserMessage());
@@ -211,8 +213,8 @@ public class StockSyncService {
 
         for (ParsedHolding parsed : parsedHoldings) {
             Holding holding = existing.getOrDefault(parsed.ticker(), Holding.create(asset, parsed.ticker()));
-            // security_type은 CODEF가 구분해 주지 않으므로 NULL (M-1 — 시세 수집 단계에서 다른 소스로 채움)
-            holding.update(parsed.stockName(), null, parsed.quantity(), parsed.avgBuyPrice(),
+            // security_type은 CODEF가 구분해 주지 않는다 — 시세 수집 단계에서 채운 값을 유지하고, 새 종목은 NULL (M-1)
+            holding.update(parsed.stockName(), holding.getSecurityType(), parsed.quantity(), parsed.avgBuyPrice(),
                     parsed.currentPrice(), parsed.evalAmount(), parsed.profitLoss(), parsed.profitLossRate());
             if (holding.getId() == null) {
                 holdingRepository.save(holding); // 값을 채운 뒤 저장 (quantity NOT NULL)

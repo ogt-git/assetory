@@ -1,0 +1,19 @@
+{
+  "_comment": "테스트 전용 더미 값 — E2E 사용자 U1의 오늘 증권 잔고: 예수금 + 주식 · ETF · 거래정지 종목. 평가금액은 CODEF 임시값(스냅샷은 한투 종가로 다시 계산)",
+  "result": {"code": "CF-00000", "message": "성공", "extraMessage": ""},
+  "data": {
+    "resAccount": "00000000000",
+    "resDepositReceived": "1,000,000",
+    "resItemList": [
+      {"resProductType": "주식", "resItemName": "삼성전자", "resItemCode": "005930", "resQuantity": "10",
+       "resPresentAmt": "70,000", "resPurchaseAmount": "650,000", "resValuationAmt": "700,000", "resValuationPL": "50,000",
+       "resEarningsRate": "7.69", "resAccountCurrency": "KRW"},
+      {"resProductType": "주식", "resItemName": "KODEX 200", "resItemCode": "069500", "resQuantity": "5",
+       "resPresentAmt": "34,000", "resPurchaseAmount": "160,000", "resValuationAmt": "170,000", "resValuationPL": "10,000",
+       "resEarningsRate": "6.25", "resAccountCurrency": "KRW"},
+      {"resProductType": "주식", "resItemName": "정지종목", "resItemCode": "111111", "resQuantity": "3",
+       "resPresentAmt": "12,000", "resPurchaseAmount": "40,000", "resValuationAmt": "36,000", "resValuationPL": "-4,000",
+       "resEarningsRate": "-10.00", "resAccountCurrency": "KRW"}
+    ]
+  }
+}

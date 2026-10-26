@@ -17,6 +17,9 @@ public enum ErrorCode {
     CODEF_ALREADY_CONNECTED(409, "이미 연동된 금융기관입니다."),
     CODEF_CONNECT_IN_PROGRESS(409, "해당 금융기관 연동이 진행 중입니다."),
 
+    // 시세 (한투) — 원문 메시지 대신 이 문구만 내보낸다
+    MARKET_DATA_UNAVAILABLE(502, "시세 정보를 가져오지 못했습니다"),
+
     // 요청 제한
     TOO_MANY_REQUESTS(429, "5분 후 다시 시도해주세요"),
 

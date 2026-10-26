@@ -1,0 +1,11 @@
+{
+  "_comment": "테스트 전용 더미 값 — 공식 예제(search_stock_info) 필드명 기준. 코드 값은 실호출 검증(V2) 전까지 임의 값",
+  "rt_cd": "0",
+  "msg_cd": "KIOK0000",
+  "msg1": "정상처리 되었습니다",
+  "output": {
+    "pdno": "069500", "prdt_type_cd": "300", "prdt_name": "테스트 ETF", "prdt_abrv_name": "테스트ETF",
+    "scty_grp_id_cd": "EF", "etf_dvsn_cd": "1", "etf_type_cd": "1",
+    "tr_stop_yn": "N", "admn_item_yn": "N", "lstg_abol_dt": ""
+  }
+}

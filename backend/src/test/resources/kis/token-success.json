@@ -1,0 +1,7 @@
+{
+  "_comment": "테스트 전용 더미 값 — 실제 토큰이 아니다",
+  "access_token": "test-only-kis-token-1",
+  "access_token_token_expired": "2026-10-14 16:00:00",
+  "token_type": "Bearer",
+  "expires_in": 86400
+}

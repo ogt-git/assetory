@@ -79,6 +79,11 @@ public class Holding {
         return holding;
     }
 
+    // STOCK/ETF 판별 결과 — 한투 종목정보로 채운다 (FR-CN-03). CODEF 동기화는 이 값을 건드리지 않는다
+    public void assignSecurityType(SecurityType securityType) {
+        this.securityType = securityType;
+    }
+
     public void update(String stockName, SecurityType securityType, BigDecimal quantity, BigDecimal avgBuyPrice,
                        BigDecimal currentPrice, BigDecimal evalAmount, BigDecimal profitLoss, BigDecimal profitLossRate) {
         this.stockName = stockName;

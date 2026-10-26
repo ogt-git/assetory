@@ -11,6 +11,7 @@ import com.project.assetory.connect.exception.CodefInstitutionUnavailableExcepti
 import com.project.assetory.connect.exception.CodefSyncException;
 import com.project.assetory.connect.exception.CodefSyncLockConflictException;
 import com.project.assetory.connect.exception.RefreshCooldownException;
+import com.project.assetory.market.exception.KisApiException;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
@@ -210,6 +211,14 @@ public class GlobalExceptionHandler {
         log.error("[Mail] 이메일 발송 실패 error={}", e.getClass().getSimpleName());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(ApiResponse.error("이메일 발송에 실패했습니다. 서버 메일 설정을 확인해주세요.", "MAIL_SEND_FAILED"));
+    }
+
+    // 한투 호출 실패 — 원문 메시지 · 토큰은 응답과 로그에 남기지 않는다 (유형 · 한투 코드만)
+    @ExceptionHandler(KisApiException.class)
+    public ResponseEntity<ApiResponse<?>> handleKisApi(KisApiException e) {
+        log.warn("[KIS] 실패 type={} code={}", e.getErrorType(), e.getKisCode());
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResponse.error(ErrorCode.MARKET_DATA_UNAVAILABLE.getMessage(), ErrorCode.MARKET_DATA_UNAVAILABLE.name()));
     }
 
     // 매핑되지 않은 경로 — 500으로 흘리지 않고 404
