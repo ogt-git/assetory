@@ -2,13 +2,32 @@
 
 **프로젝트명**: 자산 가계부 — 증권 자산 변화 기록 · 분석 플랫폼
 **DBMS**: MySQL 8.0 (InnoDB, utf8mb4) + Redis
-**버전**: v4.1 (방향성 v6 기준)
+**버전**: v4.2 (방향성 v6.1 기준)
 
 ---
 
 ## 1. 설계 개요
 
 ### 1.1 변경 이력
+
+**v4.2 — 6주차 구현 확정 반영 (2026-10-27, D-02 · D-06 ~ D-19)**
+
+| 구분 | 테이블 | 내용 |
+|---|---|---|
+| 규칙 | holdings | `security_type` = 한투 종목정보 증권그룹 `EF` → ETF, `ST` → STOCK, 그 외 NULL. CODEF 재동기화 때 유지 (§4.6) |
+| 규칙 | asset_snapshots | 거래정지 종목은 직전 종가로 평가해 성공 · 수기 자산만 있어도 기록 · EMPTY_RESULT는 누락(임시) (§4.7) |
+| 규칙 | asset_snapshots | 첫 행 = 연동 뒤 첫 정기 배치일 (§4.7 · §11.1) |
+| 규칙 | asset_snapshots | 자산군 대상이 전부 실패하면 NULL, 대상 없으면 0 · 재실행 시 기존 COMPLETE를 덮어쓰지 않음 · 판정 대상 시각 T = 배치 시작 시각 (§4.7) |
+| 변경 | asset_snapshots | `day_change_rate` 퍼센트, 소수 4자리 HALF_UP (§4.7) |
+| 추가 | asset_snapshots · asset_detail_snapshots · stock_prices | `created_at` · `updated_at` (`BaseTimeEntity`) |
+| 변경 | asset_detail_snapshots | `day_change_amount` NULL 허용, 기준 행 정의 · ticker NULL 행은 앱 upsert로 유일성 보장 (§4.8) |
+| 규칙 | stock_prices | 원주가 종가, `change_rate` = `prdy_ctrt`, `prev_close_price` = 직전 거래일 종가(참고용) (§4.9) |
+| 규칙 | 공통 | 평가액은 종목별 HALF_UP 소수 2자리 후 합산 (§1.3) |
+| 규칙 | sync_jobs | EMPTY_RESULT = SUCCESS + 결과 errorType EMPTY_RESULT (§4.3) |
+| 변경 | 배치 흐름 | 가드 → 거래일 판정 → CODEF → 시세 → 판정 (§11.2) |
+| 추가 | 메트릭 | `external.api.*` `api` 태그, `market.price.collect`, `batch.run` (§12) |
+
+> 테이블 수 변동 없음 (28개).
 
 **v4.1 — 방향성 v6 (기획 피드백) 반영**
 
