@@ -150,7 +150,7 @@ public class StockPriceCollectService {
 
         // 기준 날짜 행이 없다 — 최신 행이 기준 날짜보다 이전이고 거래정지면 HALTED, 아니면 FAILED
         boolean stale = !prices.isEmpty() && prices.get(0).tradeDate().isBefore(tradeDate);
-        // TODO(01-§14 #24 V3 미검증): 실제 거래정지 종목에서 tr_stop_yn=Y가 오는지 아직 확인하지 못했다
+        // TODO(docs/ops/kis-verification.md V3 미검증): 실제 거래정지 종목에서 tr_stop_yn=Y가 오는지 아직 확인하지 못했다
         if (stale && lookup.get(ticker).map(info -> "Y".equals(info.tradingHalted())).orElse(false)) {
             return TickerResult.halted();
         }
