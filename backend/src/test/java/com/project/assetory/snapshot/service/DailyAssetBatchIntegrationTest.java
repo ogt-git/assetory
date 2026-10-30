@@ -61,6 +61,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -470,6 +471,79 @@ class DailyAssetBatchIntegrationTest extends IntegrationTestSupport {
         assertThat(snap.getStatus()).isEqualTo(SnapshotStatus.COMPLETE);
         assertThat(snap.getSecuritiesAmount()).isEqualByComparingTo("60000"); // 12,000 × 5
         assertThat(stockPriceRepository.findByTickerAndTradeDate("111111", DAY)).isEmpty(); // 거래정지일 행은 만들지 않음
+        verify(kis, times(1)).getDailyPrices("111111"); // 직전 종가 이력이 있으면 소급하지 않는다 (시세 수집 1회만)
+    }
+
+    // ---------- 거래정지 + 직전 종가 이력 없음 → 소급 보완 (C-04, FR-MK-04) ----------
+
+    // 장기 거래정지 종목 — 한투 일자별 응답에 오늘 행이 없고 거래정지 전 거래일만 온다 (테스트 전용 더미 시세, 실호출 미확인)
+    private static final LocalDate HALT_LAST = LocalDate.of(2029, 12, 20);
+
+    private void longHalted(String ticker) {
+        doReturn(List.of(
+                new KisDailyPrice(HALT_LAST, new BigDecimal("12000"), new BigDecimal("100"), "2", new BigDecimal("0.84"), 10L, "00", null),
+                new KisDailyPrice(HALT_LAST.minusDays(1), new BigDecimal("11900"), BigDecimal.ZERO, "3", BigDecimal.ZERO, 10L, "00", null),
+                new KisDailyPrice(HALT_LAST.minusDays(2), new BigDecimal("11900"), BigDecimal.ZERO, "3", BigDecimal.ZERO, 10L, "00", null)))
+                .when(kis).getDailyPrices(ticker);
+        doReturn(new KisStockInfo(ticker, "정지종목", "ST", "0", null, "Y", "N", null)).when(kis).getStockInfo(ticker);
+    }
+
+    @Test
+    @DisplayName("거래정지 + 직전 종가 이력 없음 + 소급 성공 → COMPLETE, 단가 = 소급한 거래정지 전 마지막 종가")
+    void halted_noHistory_backfillSucceeds_complete() throws Exception {
+        LinkedUser user = linkedUser(ConnectedAccountStatus.ACTIVE);
+        codefResponses.put(user.connectedId(), codefSuccess("0", item("111111", "5", "60000")));
+        longHalted("111111");
+
+        batchService.run();
+
+        AssetSnapshot snap = snapshot(user.userId());
+        assertThat(snap.getStatus()).isEqualTo(SnapshotStatus.COMPLETE);
+        assertThat(snap.getSecuritiesAmount()).isEqualByComparingTo("60000"); // 12,000 × 5
+        AssetDetailSnapshot halted = transactionTemplate.execute(tx -> details(user.userId()).stream()
+                .filter(d -> "111111".equals(d.getTicker())).findFirst().orElseThrow());
+        assertThat(halted.getPrice()).isEqualByComparingTo("12000");
+        assertThat(stockPriceRepository.findByTickerAndTradeDate("111111", HALT_LAST)).isPresent();
+        assertThat(stockPriceRepository.findByTickerAndTradeDate("111111", DAY)).isEmpty();
+        verify(kis, times(2)).getDailyPrices("111111"); // 시세 수집 1회 + 소급 1회
+    }
+
+    @Test
+    @DisplayName("거래정지 + 직전 종가 이력 없음 + 소급 실패 → 그 종목 실패(PARTIAL), 0으로 채우지 않음")
+    void halted_noHistory_backfillFails_partial() throws Exception {
+        LinkedUser user = linkedUser(ConnectedAccountStatus.ACTIVE);
+        codefResponses.put(user.connectedId(), codefSuccess("100000", item("111111", "5", "60000")));
+        longHalted("111111");
+        // 시세 수집(1회차)은 응답, 소급(2회차)은 한투 오류
+        doReturn(List.of(new KisDailyPrice(HALT_LAST, new BigDecimal("12000"), BigDecimal.ZERO, "3", BigDecimal.ZERO, 10L, "00", null)))
+                .doThrow(new KisApiException(KisErrorType.API_ERROR, null))
+                .when(kis).getDailyPrices("111111");
+
+        batchService.run();
+
+        AssetSnapshot snap = snapshot(user.userId());
+        assertThat(snap.getStatus()).isEqualTo(SnapshotStatus.PARTIAL);
+        assertThat(snap.getSecuritiesAmount()).isNull();                    // 종목 대상이 전부 실패 → NULL (0 아님)
+        assertThat(snap.getCashAmount()).isEqualByComparingTo("100000");   // 예수금은 성공
+        assertThat(hasDetail(user.userId(), user.securitiesAssetId(), "111111")).isFalse();
+        verify(kis, times(2)).getDailyPrices("111111");
+    }
+
+    @Test
+    @DisplayName("두 사용자가 같은 장기 거래정지 종목 보유 → 같은 실행에서 소급 1회, 둘 다 COMPLETE")
+    void halted_noHistory_twoUsers_backfillOnce() throws Exception {
+        LinkedUser first = linkedUser(ConnectedAccountStatus.ACTIVE);
+        LinkedUser second = linkedUser(ConnectedAccountStatus.ACTIVE);
+        codefResponses.put(first.connectedId(), codefSuccess("0", item("111111", "5", "60000")));
+        codefResponses.put(second.connectedId(), codefSuccess("0", item("111111", "2", "24000")));
+        longHalted("111111");
+
+        batchService.run();
+
+        assertThat(snapshot(first.userId()).getStatus()).isEqualTo(SnapshotStatus.COMPLETE);
+        assertThat(snapshot(second.userId()).getStatus()).isEqualTo(SnapshotStatus.COMPLETE);
+        assertThat(snapshot(second.userId()).getSecuritiesAmount()).isEqualByComparingTo("24000"); // 12,000 × 2
+        verify(kis, times(2)).getDailyPrices("111111"); // 시세 수집 1회(종목 합집합) + 소급 1회
     }
 
     // ---------- 재실행 · 격리 · 대상 ----------
