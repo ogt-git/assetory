@@ -1,45 +1,45 @@
-import { useMutation } from '@tanstack/react-query';
-import { useState, type FormEvent } from 'react';
+import { useMutation } from '@tanstack/react-query'
+import { useState, type FormEvent } from 'react'
 import {
   Navigate,
   useLocation,
   useNavigate,
   type Location,
-} from 'react-router-dom';
-import { paths } from '@/app/paths';
-import { login } from '@/features/auth/api';
-import { useAuthStore } from '@/features/auth/authStore';
-import { errorMessage } from '@/features/auth/session';
+} from 'react-router-dom'
+import { paths } from '@/app/paths'
+import { login } from '@/features/auth/api'
+import { useAuthStore } from '@/features/auth/authStore'
+import { errorMessage } from '@/features/auth/session'
 
 export default function LoginPage() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const status = useAuthStore((state) => state.status);
-  const signIn = useAuthStore((state) => state.signIn);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const navigate = useNavigate()
+  const location = useLocation()
+  const status = useAuthStore((state) => state.status)
+  const signIn = useAuthStore((state) => state.signIn)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
 
   // 가드가 보낸 원래 경로로 돌아간다
   const from =
     (location.state as { from?: Location } | null)?.from?.pathname ??
-    paths.dashboard();
+    paths.dashboard()
 
   const mutation = useMutation({
     mutationFn: login,
     onSuccess: (result) => {
-      signIn(result.accessToken, result.nickname);
-      navigate(from, { replace: true });
+      signIn(result.accessToken, result.nickname)
+      navigate(from, { replace: true })
     },
-  });
+  })
 
   if (status === 'authenticated' && !mutation.isPending) {
-    return <Navigate to={from} replace />;
+    return <Navigate to={from} replace />
   }
 
   const onSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    mutation.mutate({ email: email.trim(), password });
-  };
+    event.preventDefault()
+    mutation.mutate({ email: email.trim(), password })
+  }
 
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 p-4">
@@ -84,5 +84,5 @@ export default function LoginPage() {
         </button>
       </form>
     </main>
-  );
+  )
 }

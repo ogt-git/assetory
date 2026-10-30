@@ -1,26 +1,26 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
-import { paths } from '@/app/paths';
-import { fetchAssetChanges } from '@/features/asset/api';
-import { useAuthStore } from '@/features/auth/authStore';
-import { signOutSession } from '@/features/auth/session';
-import { formatKRW } from '@/shared/lib/format';
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
+import { paths } from '@/app/paths'
+import { fetchAssetChanges } from '@/features/asset/api'
+import { useAuthStore } from '@/features/auth/authStore'
+import { signOutSession } from '@/features/auth/session'
+import { formatKRW } from '@/shared/lib/format'
 
 export default function DashboardPage() {
-  const nickname = useAuthStore((state) => state.nickname);
-  const queryClient = useQueryClient();
-  const navigate = useNavigate();
+  const nickname = useAuthStore((state) => state.nickname)
+  const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const changes = useQuery({
     queryKey: ['snapshots', 'changes'],
     queryFn: fetchAssetChanges,
-  });
+  })
 
   const onLogout = async () => {
-    await signOutSession();
+    await signOutSession()
     // 다른 계정으로 로그인했을 때 이전 사용자 데이터가 보이지 않게 비운다
-    queryClient.clear();
-    navigate(paths.login(), { replace: true });
-  };
+    queryClient.clear()
+    navigate(paths.login(), { replace: true })
+  }
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -61,5 +61,5 @@ export default function DashboardPage() {
         )}
       </section>
     </div>
-  );
+  )
 }

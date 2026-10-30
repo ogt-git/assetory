@@ -37,21 +37,21 @@ src/
 
 ## 라우트
 
-| 화면 | URL |
-|---|---|
-| 로그인 | `/login` |
-| S-01 대시보드 | `/` |
-| S-02 자산 기록 | `/records` (날짜는 `?date=YYYY-MM-DD`) |
-| S-03 월간 결산 | `/reports`, `/reports/:yearMonth` |
-| S-04 원인 분석 | `/analysis/:stockCode/:date` |
-| S-05 종목 상세 | `/stocks/:stockCode` |
-| S-06 목표 | `/goals`, `/goals/:goalId` |
-| S-07 예적금 비교 | `/deposits/compare` |
-| S-08 알림 | `/notifications` |
-| S-09 알림 설정 | `/settings/notifications` |
-| S-10 계좌 연동 | `/connect` |
-| S-11 온보딩 | `/onboarding` (하단 탭 없음) |
-| 404 | 그 외 모든 경로 |
+| 화면             | URL                                    |
+| ---------------- | -------------------------------------- |
+| 로그인           | `/login`                               |
+| S-01 대시보드    | `/`                                    |
+| S-02 자산 기록   | `/records` (날짜는 `?date=YYYY-MM-DD`) |
+| S-03 월간 결산   | `/reports`, `/reports/:yearMonth`      |
+| S-04 원인 분석   | `/analysis/:stockCode/:date`           |
+| S-05 종목 상세   | `/stocks/:stockCode`                   |
+| S-06 목표        | `/goals`, `/goals/:goalId`             |
+| S-07 예적금 비교 | `/deposits/compare`                    |
+| S-08 알림        | `/notifications`                       |
+| S-09 알림 설정   | `/settings/notifications`              |
+| S-10 계좌 연동   | `/connect`                             |
+| S-11 온보딩      | `/onboarding` (하단 탭 없음)           |
+| 404              | 그 외 모든 경로                        |
 
 URL은 직접 문자열로 만들지 말고 `app/paths.ts`의 함수를 사용한다. S-01~S-10은 하단 탭 레이아웃(`shared/components/layout/BottomTabLayout.tsx`) 안에서 렌더링되며, 탭은 홈·기록·결산·목표·알림 다섯 개다. `/login`, `/onboarding`은 탭 레이아웃 밖에 있다.
 

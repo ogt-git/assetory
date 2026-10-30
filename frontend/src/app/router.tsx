@@ -1,21 +1,21 @@
-import { Route, Routes } from 'react-router-dom';
-import BottomTabLayout from '@/shared/components/layout/BottomTabLayout';
-import RequireAuth from '@/features/auth/RequireAuth';
-import LoginPage from '@/pages/login/LoginPage';
-import DashboardPage from '@/pages/dashboard/DashboardPage';
-import RecordsPage from '@/pages/records/RecordsPage';
-import ReportsPage from '@/pages/reports/ReportsPage';
-import ReportDetailPage from '@/pages/reportDetail/ReportDetailPage';
-import AnalysisPage from '@/pages/analysis/AnalysisPage';
-import StockDetailPage from '@/pages/stockDetail/StockDetailPage';
-import GoalsPage from '@/pages/goals/GoalsPage';
-import GoalDetailPage from '@/pages/goalDetail/GoalDetailPage';
-import DepositsComparePage from '@/pages/depositsCompare/DepositsComparePage';
-import NotificationsPage from '@/pages/notifications/NotificationsPage';
-import NotificationSettingsPage from '@/pages/notificationSettings/NotificationSettingsPage';
-import ConnectPage from '@/pages/connect/ConnectPage';
-import OnboardingPage from '@/pages/onboarding/OnboardingPage';
-import NotFoundPage from '@/pages/notFound/NotFoundPage';
+import { Route, Routes } from 'react-router-dom'
+import BottomTabLayout from '@/shared/components/layout/BottomTabLayout'
+import RequireAuth from '@/features/auth/RequireAuth'
+import LoginPage from '@/pages/login/LoginPage'
+import DashboardPage from '@/pages/dashboard/DashboardPage'
+import RecordsPage from '@/pages/records/RecordsPage'
+import ReportsPage from '@/pages/reports/ReportsPage'
+import ReportDetailPage from '@/pages/reportDetail/ReportDetailPage'
+import AnalysisPage from '@/pages/analysis/AnalysisPage'
+import StockDetailPage from '@/pages/stockDetail/StockDetailPage'
+import GoalsPage from '@/pages/goals/GoalsPage'
+import GoalDetailPage from '@/pages/goalDetail/GoalDetailPage'
+import DepositsComparePage from '@/pages/depositsCompare/DepositsComparePage'
+import NotificationsPage from '@/pages/notifications/NotificationsPage'
+import NotificationSettingsPage from '@/pages/notificationSettings/NotificationSettingsPage'
+import ConnectPage from '@/pages/connect/ConnectPage'
+import OnboardingPage from '@/pages/onboarding/OnboardingPage'
+import NotFoundPage from '@/pages/notFound/NotFoundPage'
 
 export function AppRouter() {
   return (
@@ -46,5 +46,5 @@ export function AppRouter() {
 
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
-  );
+  )
 }

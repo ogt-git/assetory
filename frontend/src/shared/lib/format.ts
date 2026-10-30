@@ -2,9 +2,7 @@ const PLACEHOLDER = '—'
 
 function isInvalidNumber(value: unknown): value is null | undefined {
   return (
-    typeof value !== 'number' ||
-    Number.isNaN(value) ||
-    !Number.isFinite(value)
+    typeof value !== 'number' || Number.isNaN(value) || !Number.isFinite(value)
   )
 }
 
