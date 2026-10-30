@@ -12,7 +12,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -51,7 +53,7 @@ public final class SnapshotJudge {
             successes++;
             BigDecimal accountDeposit = scale(account.deposit());
             cash.succeed(accountDeposit);
-            details.add(new Detail(account.assetId(), null, accountDeposit));
+            details.add(Detail.asset(account.assetId(), accountDeposit));
 
             for (HoldingPrice holding : account.holdings()) {
                 targets++;
@@ -62,7 +64,8 @@ public final class SnapshotJudge {
                 }
                 successes++;
                 securities.succeed(value);
-                details.add(new Detail(account.assetId(), holding.ticker(), value));
+                // 평가에 쓴 수량 · 단가를 그대로 남긴다 — 시장가격 영향의 기준 값 (05 §4.7 · §4.8)
+                details.add(new Detail(account.assetId(), holding.ticker(), value, holding.quantity(), holding.price()));
             }
         }
 
@@ -77,7 +80,7 @@ public final class SnapshotJudge {
             successes++;
             BigDecimal balance = scale(manual.balance());
             tally.succeed(balance);
-            details.add(new Detail(manual.assetId(), null, balance));
+            details.add(Detail.asset(manual.assetId(), balance));
         }
 
         if (targets == 0) {
@@ -109,6 +112,45 @@ public final class SnapshotJudge {
                 : amount.multiply(HUNDRED).divide(previousCompleteTotal, RATE_SCALE, RoundingMode.HALF_UP);
         return new DayChange(previousCompleteDate, amount, rate);
     }
+
+    /**
+     * 시장가격 영향 · 기타 자산 변화 (05 §4.7, 01 §14 #1 · #2).
+     * market = Σ (asset_id, ticker)별 HALF_UP2[min(q_기준, q_오늘) × (p_오늘 − p_기준)], other = day_change − market.
+     * - 기준일 · 오늘 모두 있는 종목만 센다 — 늘어난 수량(매수) · 줄어든 수량(매도)은 체결 단가를 몰라 가격 효과를 계산하지 않는다
+     * - ticker NULL 행(예수금 · 수기 자산)은 시장가격 영향 0
+     * - 계속 보유 종목의 수량 · 단가가 하나라도 없으면 0으로 채우지 않고 NONE
+     *
+     * @param baseDetails  기준일(dayChange.baseSnapshotDate) detail 행
+     * @param todayDetails 오늘 detail 행
+     * @param dayChange    오늘 전일 대비 결과 — 기준 날짜 · 변화액이 없으면(COMPLETE 아님 · 직전 COMPLETE 없음) NONE
+     */
+    public static MarketChange marketChange(List<Detail> baseDetails, List<Detail> todayDetails, DayChange dayChange) {
+        if (dayChange.baseSnapshotDate() == null || dayChange.amount() == null) {
+            return MarketChange.NONE;
+        }
+        Map<StockKey, Detail> base = new HashMap<>();
+        for (Detail detail : baseDetails) {
+            if (detail.ticker() != null) {
+                base.put(new StockKey(detail.assetId(), detail.ticker()), detail);
+            }
+        }
+
+        BigDecimal market = BigDecimal.ZERO.setScale(AMOUNT_SCALE);
+        for (Detail today : todayDetails) {
+            Detail before = today.ticker() == null ? null : base.get(new StockKey(today.assetId(), today.ticker()));
+            if (before == null) {
+                continue; // 예수금 · 수기 자산, 또는 오늘 새로 생긴 종목
+            }
+            if (before.quantity() == null || before.price() == null || today.quantity() == null || today.price() == null) {
+                return MarketChange.NONE;
+            }
+            BigDecimal held = before.quantity().min(today.quantity());
+            market = market.add(scale(held.multiply(today.price().subtract(before.price()))));
+        }
+        return new MarketChange(market, dayChange.amount().subtract(market));
+    }
+
+    private record StockKey(Long assetId, String ticker) {}
 
     // 평가할 수 없으면 null — 시세 실패, 거래정지인데 직전 종가 없음, 수량 · 가격 누락
     private static BigDecimal valuation(HoldingPrice holding) {

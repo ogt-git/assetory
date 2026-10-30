@@ -49,6 +49,13 @@ public class AssetDetailSnapshot extends BaseTimeEntity {
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal amount;
 
+    // 종목 행만 — 평가에 쓴 보유수량 · 단가 (amount = HALF_UP2(quantity × price)). ticker NULL 행은 NULL (05 §4.8)
+    @Column(precision = 18, scale = 4)
+    private BigDecimal quantity;
+
+    @Column(precision = 18, scale = 2)
+    private BigDecimal price;
+
     // 같은 (asset_id, ticker)의 직전 detail 행 대비. 직전 행이 없으면 NULL (0은 "변화 없음"으로 읽히므로 쓰지 않음)
     @Column(name = "day_change_amount", precision = 18, scale = 2)
     private BigDecimal dayChangeAmount;
@@ -61,8 +68,10 @@ public class AssetDetailSnapshot extends BaseTimeEntity {
         return detail;
     }
 
-    public void apply(BigDecimal amount, BigDecimal dayChangeAmount) {
+    public void apply(BigDecimal amount, BigDecimal quantity, BigDecimal price, BigDecimal dayChangeAmount) {
         this.amount = amount;
+        this.quantity = quantity;
+        this.price = price;
         this.dayChangeAmount = dayChangeAmount;
     }
 }
