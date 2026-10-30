@@ -159,6 +159,8 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
         // U2 — 직전 정기 기록(PREV COMPLETE 280,000)
         snapshotSaveService.save(seeded.u2(), new SnapshotInput(PREV, PREV.atTime(16, 5), List.of(),
                 List.of(new Manual(seeded.u2CashId(), AssetType.CASH, new BigDecimal("280000")))));
+        // U1 — 직전 정기 기록(PREV COMPLETE 4,686,000, 종목 행 수량 · 단가 포함)
+        fixture.u1PreviousRecord(snapshotSaveService, seeded, PREV);
 
         at(DAY.atTime(16, 0));
     }
@@ -256,7 +258,7 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
 
     // ================= 점검 단언 =================
 
-    // asset_snapshots — 사용자별 상태 · 금액 · 전일 대비 · total = 자산군 합 · 시장/기타 변화 NULL
+    // asset_snapshots — 사용자별 상태 · 금액 · 전일 대비 · total = 자산군 합 · 시장가격 영향 / 기타 자산 변화
     private void assertSnapshots() {
         Map<String, Object> u1 = snapshot(seeded.u1().userId());
         assertThat(u1.get("status")).isEqualTo("COMPLETE");
@@ -264,7 +266,13 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
         assertThat((BigDecimal) u1.get("cash_amount")).isEqualByComparingTo("1500000");      // 예수금 1,000,000 + CASH 500,000
         assertThat((BigDecimal) u1.get("deposit_amount")).isEqualByComparingTo("2000000");
         assertThat((BigDecimal) u1.get("total_asset")).isEqualByComparingTo("4423000");
-        assertThat(u1.get("base_snapshot_date")).isNull();                                    // 첫 기록
+        assertThat(u1.get("base_snapshot_date").toString()).isEqualTo(PREV.toString());
+        assertThat((BigDecimal) u1.get("day_change_amount")).isEqualByComparingTo("-263000");   // 4,423,000 − 4,686,000
+        assertThat((BigDecimal) u1.get("day_change_rate")).isEqualByComparingTo("-5.6125");
+        // 시장가격 영향 (05 §4.7): 005930 min(8,10)×(71,200−72,000) −6,400 + 069500 5×(35,000−34,800) +1,000
+        //   + 111111 거래정지 0 + 000660 전량 매도 0 = −5,400 / 기타 = −263,000 − (−5,400)
+        assertThat((BigDecimal) u1.get("market_change_amount")).isEqualByComparingTo("-5400");
+        assertThat((BigDecimal) u1.get("other_change_amount")).isEqualByComparingTo("-257600");
 
         Map<String, Object> u2 = snapshot(seeded.u2());
         assertThat(u2.get("status")).isEqualTo("COMPLETE");
@@ -272,6 +280,8 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
         assertThat(u2.get("base_snapshot_date").toString()).isEqualTo(PREV.toString());
         assertThat((BigDecimal) u2.get("day_change_amount")).isEqualByComparingTo("20000");
         assertThat((BigDecimal) u2.get("day_change_rate")).isEqualByComparingTo("7.1429");
+        assertThat((BigDecimal) u2.get("market_change_amount")).isEqualByComparingTo("0");     // 종목 없음 → 정상 0
+        assertThat((BigDecimal) u2.get("other_change_amount")).isEqualByComparingTo("20000");
 
         Map<String, Object> u3 = snapshot(seeded.u3().userId());
         assertThat(u3.get("status")).isEqualTo("PARTIAL");
@@ -288,8 +298,14 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
                 + "coalesce(securities_amount,0) + coalesce(cash_amount,0) + coalesce(deposit_amount,0)", Integer.class, DAY)).isZero();
         assertThat(jdbc.queryForObject("select count(*) from asset_snapshots where snapshot_date = ? and status <> 'COMPLETE' "
                 + "and (base_snapshot_date is not null or day_change_amount is not null or day_change_rate is not null)", Integer.class, DAY)).isZero();
+        // 시장가격 영향 · 기타 자산 변화 (01 §14 #1 · #2 확정, 05 §4.7): COMPLETE + 기준 있음 → 둘 다 값, 그 외 → 둘 다 NULL
+        assertThat(jdbc.queryForObject("select count(*) from asset_snapshots where snapshot_date = ? and status = 'COMPLETE' "
+                + "and base_snapshot_date is not null and (market_change_amount is null or other_change_amount is null)",
+                Integer.class, DAY)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from asset_snapshots where (status <> 'COMPLETE' or base_snapshot_date is null) "
+                + "and (market_change_amount is not null or other_change_amount is not null)", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("select count(*) from asset_snapshots where market_change_amount is not null "
-                + "or other_change_amount is not null", Integer.class)).isZero();
+                + "and other_change_amount <> day_change_amount - market_change_amount", Integer.class)).isZero();
     }
 
     // stock_prices — 보유 합집합 중 거래정지 제외 행, 변동률 부호, 직전 종가
@@ -386,7 +402,7 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
 
     private Map<String, Object> snapshot(Long userId) {
         return jdbc.queryForMap("select status, total_asset, securities_amount, cash_amount, deposit_amount, "
-                + "base_snapshot_date, day_change_amount, day_change_rate from asset_snapshots where user_id = ? and snapshot_date = ?",
+                + "base_snapshot_date, day_change_amount, day_change_rate, market_change_amount, other_change_amount from asset_snapshots where user_id = ? and snapshot_date = ?",
                 userId, DAY);
     }
 
