@@ -1,19 +1,23 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { paths } from '@/app/paths'
-import { fetchAssetChanges } from '@/features/asset/api'
-import { useAuthStore } from '@/features/auth/authStore'
+import AssetComposition from '@/features/asset/AssetComposition'
+import AssetSummary from '@/features/asset/AssetSummary'
+import AssetTrendChart from '@/features/asset/AssetTrendChart'
+import HoldingList from '@/features/asset/HoldingList'
+import NoRecordsNotice from '@/features/asset/NoRecordsNotice'
+import { useAssetChanges } from '@/features/asset/queries'
 import { signOutSession } from '@/features/auth/session'
-import { formatKRW } from '@/shared/lib/format'
 
+/**
+ * S-01 대시보드 (03 §2). 영역 순서는 03 표 그대로 — 아직 만들지 않은 영역은 화면에 그리지 않고 자리만 남긴다.
+ */
 export default function DashboardPage() {
-  const nickname = useAuthStore((state) => state.nickname)
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const changes = useQuery({
-    queryKey: ['snapshots', 'changes'],
-    queryFn: fetchAssetChanges,
-  })
+  // ②와 같은 조회(캐시 공유) — 기록 유무 판단에만 쓴다
+  const changes = useAssetChanges()
+  const noRecords = changes.data != null && changes.data.asOfDate == null
 
   const onLogout = async () => {
     await signOutSession()
@@ -23,7 +27,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4 p-4">
+    <div className="mx-auto flex max-w-xl flex-col gap-6 p-4">
       <header className="flex items-center justify-between">
         <h1 className="text-xl font-bold">대시보드</h1>
         <button
@@ -34,32 +38,23 @@ export default function DashboardPage() {
           로그아웃
         </button>
       </header>
-      {nickname && <p className="text-sm">{nickname}님</p>}
 
-      {/* C1 임시 확인 영역 — 로그인 · 토큰 처리 확인용. C2(S-01 대시보드)에서 교체한다 */}
-      <section
-        aria-label="자산 요약(임시)"
-        className="rounded border p-3 text-sm"
-      >
-        {changes.isPending && <p>불러오는 중…</p>}
-        {changes.isError && (
-          <p className="text-rise">자산 정보를 불러오지 못했습니다.</p>
-        )}
-        {changes.data && (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-            <dt>기준일</dt>
-            <dd>{changes.data.asOfDate ?? '—'}</dd>
-            <dt>총자산</dt>
-            <dd>{formatKRW(changes.data.totalAsset)}</dd>
-            <dt>최근 기록</dt>
-            <dd>
-              {changes.data.latestRecord
-                ? `${changes.data.latestRecord.date} (${changes.data.latestRecord.status})`
-                : '기록 없음'}
-            </dd>
-          </dl>
-        )}
-      </section>
+      {/* 기록이 하나도 없다고 확인된 경우에만 영역 대신 안내를 보여준다. 불러오는 중 · 오류면 영역별 상태를 그대로 보여준다 */}
+      {noRecords ? (
+        <NoRecordsNotice />
+      ) : (
+        <>
+          {/* ① 오늘의 변화 카드 — 종목 급등락 원인 분석(S-04) 기능에서 추가 */}
+          <AssetSummary />
+          <AssetTrendChart />
+          {/* ④ 목표 진척 게이지 — 투자 목표(S-06) 기능에서 추가 */}
+          {/* ⑤ · ⑥은 같은 조회(/snapshots/portfolio)를 공유한다 — 요청 1회 */}
+          <AssetComposition />
+          <HoldingList />
+          {/* ⑦ 결산 배너(매월 1~7일) — 월간 결산(S-03) 기능에서 추가 */}
+          {/* ⑧ 예적금 배너 — 예적금 비교(S-07) 기능에서 추가 */}
+        </>
+      )}
     </div>
   )
 }
