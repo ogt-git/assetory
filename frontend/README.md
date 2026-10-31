@@ -1,6 +1,6 @@
 # assetory frontend
 
-자산 가계부 assetory의 프론트엔드. 로그인 · S-01 대시보드(② · ③ · ⑤ · ⑥)까지 백엔드와 연결돼 있고, 나머지 화면은 라우트만 있는 자리 페이지다.
+자산 가계부 assetory의 프론트엔드. 로그인 · S-01 대시보드(② · ③ · ⑤ · ⑥) · S-02 자산 기록까지 백엔드와 연결돼 있고, 나머지 화면은 라우트만 있는 자리 페이지다.
 
 ## 실행 방법
 
@@ -22,7 +22,7 @@ npm run build
 ```
 src/
 ├─ app/        App.tsx, router.tsx, providers.tsx, paths.ts
-├─ pages/      화면별 폴더 (dashboard · login 외에는 제목만 있는 자리 페이지)
+├─ pages/      화면별 폴더 (dashboard · records · login 외에는 제목만 있는 자리 페이지)
 ├─ features/   auth(로그인 · 토큰), asset(자산 기록 조회 · 대시보드 영역), analysis · goal · deposit · notification(준비 중)
 └─ shared/
    ├─ api/          client.ts (axios 인스턴스), types.ts (응답 envelope · 공통 enum)
@@ -89,6 +89,22 @@ cd frontend && npm run dev            # http://localhost:5173
 - 기록이 하나도 없으면 영역 대신 `NoRecordsNotice`(계좌 연동 안내)를 보여준다.
 - 영역마다 따로 조회한다 — 한 영역이 실패해도 다른 영역은 보이고, 실패한 영역에 다시 시도 버튼이 있다.
 - 증감 · 비중 · 손익 · 시장가격 영향은 백엔드 값을 그대로 표시한다(프론트에서 다시 계산하지 않는다).
+
+## S-02 자산 기록 (03 §3)
+
+`/records` — 월 단위 날짜별 기록. 컴포넌트는 `features/asset/RecordsMonth`(월 화면) · `RecordDetail`(행 펼침).
+
+| 요소         | API                 | 내용                                                                                                            |
+| ------------ | ------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 월 헤더 ◀ ▶  | `/snapshots?month=` | `firstRecordMonth` ~ `latestRecordMonth` 밖이면 비활성. 월을 옮기면 `?month=yyyy-MM`                            |
+| 이번 달 요약 | 같은 응답 `summary` | 그 달 첫 COMPLETE → 마지막 COMPLETE(월간 결산과 같은 기준). 항상 펼침, 상승일 · 하락일 수                       |
+| 날짜 행      | 같은 응답 `records` | 날짜 내림차순, 휴장일은 행 없음. 🔔는 `hasEvent=true`일 때만(클릭 없음)                                         |
+| 누락 행      | 같은 응답           | "9/12 (금) · 일부 누락 — 9/11 (목) 기준 ₩…" — 직전 COMPLETE 금액 + 기준 날짜(01 §14 #19), 부분 금액 · 증감 없음 |
+| 행 펼침      | `/snapshots/{date}` | 펼칠 때만 조회(다시 펼치면 캐시). 자산군 → 자산 → 종목. 누락 행은 조회하지 않고 안내만                          |
+
+- URL: `?month=yyyy-MM` · `?date=yyyy-MM-dd`. `date`가 있으면 그 달을 열고 그 날짜 행을 펼친 뒤 한 번 스크롤한다(대시보드 추이 차트 점 클릭). 형식이 틀린 값은 무시하고 최근 기록 달을 연다.
+- 기록이 하나도 없으면 대시보드와 같은 `NoRecordsNotice`.
+- 아직 연결하지 않은 것: [원인 보기](S-04), 이번 달 요약 → 월간 결산(S-03).
 
 ## 규칙
 
