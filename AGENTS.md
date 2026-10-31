@@ -29,7 +29,7 @@
 ## 4. 기술 스택 (고정 · 주의할 것만)
 - Java 17 · Spring Boot 3.5 · MySQL 8.0 · Redis 7. 시간대 Asia/Seoul.
 - React **18.3.1 고정**(`@types/react` 포함, 19로 올리지 않는다) · TypeScript 6 · Vite 8 · Tailwind 4 · Node 24(`frontend/.nvmrc`).
-- 프론트 린트는 ESLint가 아니라 **oxlint**, 포맷은 prettier(singleQuote).
+- 프론트 린트는 ESLint가 아니라 **oxlint**, 포맷은 prettier(singleQuote, 세미콜론 없음 `semi: false`).
 
 ## 5. 개발 규칙
 ### A. 문서 우선순위
@@ -129,6 +129,7 @@
 ```bash
 docker compose up -d                       # 루트. 로컬 MySQL · Redis (.env 필요, .env.example 참고)
 cd backend && ./gradlew bootRun            # 기본 프로필 local, 루트 .env를 읽는다
+cd backend && ./gradlew bootTestRun        # fake 프로필 — 데모 계정 · 가짜 한투 · CODEF, 매번 새 DB (Docker 필요, docs/ops/fake-profile.md)
 cd backend && ./gradlew test               # 전체 테스트 (Docker 필요)
 cd backend && ./gradlew test --tests '*StockAssetParserTest'   # 단일 테스트
 cd backend && ./gradlew build              # 빌드 + 테스트

@@ -35,6 +35,7 @@
 | 규칙 | asset_snapshots | 거래정지 종목의 직전 종가가 없으면 시세 소급 1회(종목당 실행 1회) 후 판정, 그래도 없으면 실패 (§4.7 · §11.2, C-04, 2026-10-29) |
 | 규칙 | asset_snapshots | 예금 이자는 별도 식별하지 않고 기타 자산 변화에 포함 (§4.7, 01 §14 #3, 2026-10-29) |
 | 규칙 | holdings | `eval_amount` = CODEF 평가액(현재 자산 표시용), 공식 평가 · 보유 종목 손익은 asset_detail_snapshots 기준 · 원금 한계 메모 (§4.6, 2026-10-30) |
+| 문구 | holdings | §4.6 "0 치환 금지" — CODEF 평가액을 임시로 쓴다는 전제를 지우고 CODEF 필수 값 · 공식 기록 필수 값을 나눠 적음 (2026-10-31, 동작 변경 없음) |
 
 > 테이블 수 변동 없음 (28개).
 
@@ -588,7 +589,7 @@ erDiagram
 > UNIQUE (asset_id, ticker)
 > **보유 종목 손익의 원금 (FR-AS-03, 2026-10-30)**: 원금 = 최근 COMPLETE 기록 수량 × 현재 `avg_buy_price`. 한계: 기록 날짜 이후 추가 매수로 평균 매입가가 바뀌면 원금이 어긋날 수 있다(정기 배치는 holdings와 기록을 같은 실행에서 갱신하므로 수동 새로고침 뒤에만 발생)
 > **갱신**: (asset_id, ticker) 기준 upsert. 완전한 응답(§4.3)일 때만 반영하며, 응답에 없는 종목은 보유 종료로 보고 현재 목록에서 삭제한다(과거 asset_detail_snapshots는 보존). 응답에 **명시된** 수량 · 평가(· 매입)가 모두 0인 종목은 저장하지 않는다. 이 정리 규칙은 CODEF 응답이 완전한 보유 목록이고 빈 목록이 정상 무보유를 뜻한다는 전제에 기대므로, 실제 응답으로 확인한다 `[확인 필요]`.
-> **0 치환 금지**: 종목코드 · 수량 · 평가금액(CODEF 평가액을 임시로 쓰는 동안)은 필수이고, 없거나 해석할 수 없으면 0으로 바꾸지 않고 응답 불완전으로 처리한다. 매입금액 · 손익 · 수익률은 선택 값 — 수익률로 역산할 수 없으면 NULL로 둔다. 한투 종가 적용 후에는 수량 · 종목코드 · 기준일 종가가 필수다.
+> **0 치환 금지**: CODEF 보유 응답의 종목코드 · 수량 · 평가금액(`eval_amount`, 현재 자산 표시용)은 필수이고, 없거나 해석할 수 없으면 0으로 바꾸지 않고 응답 불완전으로 처리한다. 매입금액 · 손익 · 수익률은 선택 값 — 수익률로 역산할 수 없으면 NULL로 둔다. 공식 기록(asset_detail_snapshots, §4.8)의 평가는 한투 종가 × 수량이라 수량 · 종목코드 · 기준일 종가(거래정지면 직전 종가)가 필수다.
 > **CODEF 필드 대응**: ticker ← resItemCode, stock_name ← resItemName, quantity ← resQuantity, avg_buy_price ← resAvgPresentAmt(없으면 매입금액 resPurchaseAmount ÷ 수량), current_price ← resPresentAmt(없으면 평가금액 ÷ 수량), eval_amount ← resValuationAmt(임시), profit_loss ← resValuationPL, profit_loss_rate ← resEarningsRate. 종목별 조회 실패는 resResultCode `"0"`(응답 불완전), 해외 종목 판별은 resProductType · resAccountCurrency(04 FR-CN-03)
 
 ### 4.7 asset_snapshots — 일별 자산 기록 ★
