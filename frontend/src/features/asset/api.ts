@@ -8,6 +8,10 @@ import type { ApiResponse, SnapshotStatus } from '@/shared/api/types'
 
 export type AssetClass = 'SECURITIES' | 'DEPOSIT' | 'CASH'
 
+/** 05 §4.4 asset_type — 예금 · 적금 → DEPOSIT 자산군, 입출금 · 현금 · 증권 예수금 → CASH 자산군 */
+export type AssetType =
+  'CHECKING' | 'DEPOSIT' | 'SAVINGS' | 'SECURITIES' | 'CASH'
+
 export type TrendPeriod = '1M' | '1Y' | 'ALL'
 
 /** AssetChangeLatestRecord — 가장 최근 기록(상태 무관). COMPLETE가 아니면 누락 표시용 */
@@ -137,6 +141,118 @@ export async function fetchAssetTrend(
 export async function fetchPortfolio(): Promise<PortfolioResponse> {
   const { data } = await apiClient.get<ApiResponse<PortfolioResponse>>(
     '/snapshots/portfolio',
+  )
+  return data.data
+}
+
+/* ---------- S-02 자산 기록 (FR-AS-06) ---------- */
+
+/** SnapshotMonthRecord — 그 달 기록 1일. missing=true면 totalAsset · referenceDate는 직전 COMPLETE 값, 증감은 null */
+export interface SnapshotMonthRecord {
+  date: string
+  status: SnapshotStatus
+  /** true = 일부 또는 전체 수집 실패로 비교에서 제외된 날 */
+  missing: boolean
+  totalAsset: number | null
+  /** totalAsset의 기록 날짜 — COMPLETE면 그날, 누락이면 직전 COMPLETE 날짜(없으면 null) */
+  referenceDate: string | null
+  /** 직전 COMPLETE 대비. 누락 날 · 첫 기록은 null */
+  dayChangeAmount: number | null
+  /** 퍼센트 값(소수 4자리) */
+  dayChangeRate: number | null
+  marketChangeAmount: number | null
+  otherChangeAmount: number | null
+  hasEvent: boolean
+}
+
+/** GET /api/snapshots?month= — SnapshotMonthResponse */
+export interface SnapshotMonthResponse {
+  /** 'yyyy-MM'. 달을 생략했는데 기록이 하나도 없으면 null */
+  month: string | null
+  /** 기록이 있는 첫 달 — 월 이동(◀) 한계. 기록이 없으면 null */
+  firstRecordMonth: string | null
+  /** 기록이 있는 최근 달 — 월 이동(▶) 한계. 기록이 없으면 null */
+  latestRecordMonth: string | null
+  /** 그 달 첫 COMPLETE → 마지막 COMPLETE. 끝 날짜 필드는 없다(시작 = baseDate) */
+  summary: Comparison
+  /** 그 달 COMPLETE 기록 중 전일 대비 증가한 날 수 */
+  risingDays: number
+  fallingDays: number
+  /** 날짜 내림차순, 상태 무관(휴장일은 행이 없다) */
+  records: SnapshotMonthRecord[]
+}
+
+/** SnapshotDetailAssetClassItem — 기준일이 없거나 어느 한쪽 금액이 없으면 changeAmount는 null */
+export interface SnapshotDetailAssetClassItem {
+  amount: number | null
+  changeAmount: number | null
+}
+
+export interface SnapshotDetailAssetClasses {
+  securities: SnapshotDetailAssetClassItem
+  deposit: SnapshotDetailAssetClassItem
+  cash: SnapshotDetailAssetClassItem
+}
+
+/** SnapshotDetailHoldingItem — 평가에 쓴 수량 · 단가 · 금액과 전일 대비 */
+export interface SnapshotDetailHoldingItem {
+  ticker: string
+  /** 그 날짜 이하 최신 시세의 종목명. 없으면 종목코드 */
+  stockName: string
+  quantity: number | null
+  price: number | null
+  amount: number | null
+  /** 직전 COMPLETE 같은 계좌 · 종목 대비. 새로 산 종목이면 null */
+  dayChangeAmount: number | null
+}
+
+/** SnapshotDetailAssetItem — amount는 증권 계좌 예수금 또는 수기 자산 잔액 */
+export interface SnapshotDetailAssetItem {
+  assetId: number
+  assetType: AssetType
+  /** 수기 자산 이름 또는 증권 계좌의 기관명 */
+  name: string
+  /** 증권 계좌만. 수기 자산은 null */
+  accountNumberMasked: string | null
+  amount: number | null
+  dayChangeAmount: number | null
+  holdings: SnapshotDetailHoldingItem[]
+}
+
+/** GET /api/snapshots/{date} — SnapshotDetailResponse. missing=true면 증감 · assetClasses는 null, assets는 빈 목록 */
+export interface SnapshotDetailResponse {
+  date: string
+  status: SnapshotStatus
+  missing: boolean
+  hasEvent: boolean
+  /** 비교 기준 기록 날짜(직전 COMPLETE). 첫 기록 · 누락 날은 null */
+  baseDate: string | null
+  totalAsset: number | null
+  referenceDate: string | null
+  dayChangeAmount: number | null
+  dayChangeRate: number | null
+  marketChangeAmount: number | null
+  otherChangeAmount: number | null
+  assetClasses: SnapshotDetailAssetClasses | null
+  assets: SnapshotDetailAssetItem[]
+}
+
+/** month 생략 = 백엔드 기본(최근 기록이 있는 달) */
+export async function fetchSnapshotMonth(
+  month?: string,
+): Promise<SnapshotMonthResponse> {
+  const { data } = await apiClient.get<ApiResponse<SnapshotMonthResponse>>(
+    '/snapshots',
+    { params: month ? { month } : undefined },
+  )
+  return data.data
+}
+
+export async function fetchSnapshotDetail(
+  date: string,
+): Promise<SnapshotDetailResponse> {
+  const { data } = await apiClient.get<ApiResponse<SnapshotDetailResponse>>(
+    `/snapshots/${date}`,
   )
   return data.data
 }

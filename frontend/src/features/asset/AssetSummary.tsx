@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { AssetChangeResponse, Comparison } from '@/features/asset/api'
+import { OTHER_CHANGE_NOTE } from '@/features/asset/copy'
 import { useAssetChanges } from '@/features/asset/queries'
 import { cn } from '@/shared/lib/cn'
 import {
@@ -19,9 +20,6 @@ const TABS: { key: Tab; label: string }[] = [
 ]
 
 const NO_COMPARISON = '다음 거래일 기록부터 비교할 수 있어요'
-// 01 §3.1 — 기타 자산 변화는 원인을 뜻하지 않는 차이값. 원인을 추측하는 문장을 덧붙이지 않는다
-const OTHER_CHANGE_NOTE =
-  '입출금, 예적금 변동, 매매 등 시장가격 이외 요인이 포함될 수 있습니다'
 
 /** 증감 색 — 0 · null은 변동 없음 색 */
 function toneClass(value: number | null) {

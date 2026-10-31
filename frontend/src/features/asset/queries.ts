@@ -3,6 +3,8 @@ import {
   fetchAssetChanges,
   fetchAssetTrend,
   fetchPortfolio,
+  fetchSnapshotDetail,
+  fetchSnapshotMonth,
   type TrendPeriod,
 } from '@/features/asset/api'
 
@@ -16,6 +18,10 @@ export const assetQueryKeys = {
   changes: ['snapshots', 'changes'] as const,
   trend: (period: TrendPeriod) => ['snapshots', 'trend', period] as const,
   portfolio: ['snapshots', 'portfolio'] as const,
+  // month 생략(최근 기록 달)은 'latest'로 따로 캐시한다 — 응답의 month로 같은 달 키를 다시 부르면 한 번 더 받는다
+  month: (month: string | undefined) =>
+    ['snapshots', 'month', month ?? 'latest'] as const,
+  detail: (date: string) => ['snapshots', 'detail', date] as const,
 }
 
 /** ② 총자산 요약 */
@@ -43,5 +49,25 @@ export function usePortfolio() {
     queryKey: assetQueryKeys.portfolio,
     queryFn: fetchPortfolio,
     staleTime: STALE_TIME,
+  })
+}
+
+/** S-02 월 목록 — 월을 바꾸는 동안 이전 달 목록을 유지한다 */
+export function useSnapshotMonth(month: string | undefined) {
+  return useQuery({
+    queryKey: assetQueryKeys.month(month),
+    queryFn: () => fetchSnapshotMonth(month),
+    staleTime: STALE_TIME,
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** S-02 날짜 상세 — 행을 펼쳤을 때만(enabled) 조회하고, 다시 펼치면 캐시를 쓴다 */
+export function useSnapshotDetail(date: string, enabled: boolean) {
+  return useQuery({
+    queryKey: assetQueryKeys.detail(date),
+    queryFn: () => fetchSnapshotDetail(date),
+    staleTime: STALE_TIME,
+    enabled,
   })
 }
