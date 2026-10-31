@@ -67,7 +67,7 @@
 | C-01 | **이미 해소** | 점검 ② 시작 시점에 다른 세션이 이미 삭제 | 빌드 345개에 포함 안 됨 확인 |
 | C-02 | **수정됨 (2026-10-14)** | `StockSyncBatchService` 삭제, 이 클래스만 검증하던 `StockRefreshAndBatchIntegrationTest`의 테스트 2개 삭제(같은 내용은 일일 배치 · 동기화 테스트가 검증), 스케줄러 주석 정리, port-record §2에 대체 · 삭제 기록 | 빌드 348개 통과 |
 | C-03 | **수정됨** | `DailyAssetBatchService.run()` — 지연일이면 INFO + `deferred`, 일반일이면 ERROR + `aborted`. 테스트 `regularDay_beforeGuard_aborted`(수정 전 실패 확인 → 수정 후 통과), 기존 `lateClose_regularRun_deferred` 유지 | E3 대체: 통합 테스트 통과. 실제 E3는 다음 거래일 15:40 전 |
-| C-04 | 보류 | 7주차 소급 연결 시 | — |
+| C-04 | **수정됨 (7주차, 2026-10-29 갱신)** | `DailyAssetBatchService.haltedPreviousClose` — 거래정지 종목의 직전 종가가 없으면 시세 소급(FR-MK-04) 1회 후 다시 찾고, 그래도 없으면 그 종목 실패. 종목당 실행 1회. 최초 연동 소급(`StockPriceBackfillService`)은 응답을 자르지 않고 저장. 테스트 `DailyAssetBatchIntegrationTest.halted_noHistory_*` 3개(소급 성공 → COMPLETE, 소급 실패 → PARTIAL, 두 사용자 → 소급 1회). 05 §4.7 · §11.2 반영 | 2026-10-29: `DailyAssetBatchIntegrationTest` 23개 통과(소급 3개 포함), 전체 `./gradlew test` 411개 통과 · 실패 0. 실제 장기 거래정지 종목의 한투 응답(`tr_stop_yn=Y`)은 V3(kis-verification.md)로 확인 |
 | C-05 | 보류 | 문서 · 운영 항목 (D-21) | — |
 | C-06 | **테스트 추가** | `StockSyncIntegrationTest.emptyResult_markedInResult`, `KisApiClientTest.networkError_noRetry`, `DailyAssetBatchIntegrationTest.activeLinkWithoutAssetRow_failed` — 기존 동작이 맞아 수정 전부터 통과(회귀 방지용) | 빌드 통과 |
 | C-07 | **수정됨** | `KisLiveVerificationTest` — 검증용 직접 호출을 `itemChartPriceAround20180504()`로 분리, 호출 전 1초 대기 + EGW00201 최대 2회 재시도. 실호출 전용이라 단위 테스트로 재현 불가 | kisLiveTest 18:40: `rt_cd=0`, V1 통과 |

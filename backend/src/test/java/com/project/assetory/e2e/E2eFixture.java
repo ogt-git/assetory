@@ -12,12 +12,18 @@ import com.project.assetory.connect.repository.ConnectedAccountRepository;
 import com.project.assetory.connect.repository.InstitutionRepository;
 import com.project.assetory.market.domain.StockPrice;
 import com.project.assetory.market.repository.StockPriceRepository;
+import com.project.assetory.snapshot.domain.SnapshotInput;
+import com.project.assetory.snapshot.domain.SnapshotInput.Account;
+import com.project.assetory.snapshot.domain.SnapshotInput.HoldingPrice;
+import com.project.assetory.snapshot.domain.SnapshotInput.Manual;
+import com.project.assetory.snapshot.service.SnapshotSaveService;
 import com.project.assetory.user.domain.User;
 import com.project.assetory.user.repository.UserRepository;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -26,6 +32,7 @@ import java.util.function.Supplier;
  *
  * <pre>
  * U1 연동 + 수기  : ACTIVE 증권(예수금 1,000,000 · 005930×10 · 069500(ETF)×5 · 111111(거래정지)×3) + CASH 500,000 + DEPOSIT 2,000,000 → COMPLETE
+ *                   (직전 COMPLETE 4,686,000 — {@link #u1PreviousRecord}, 시장가격 영향 −5,400)
  * U2 수기만       : CASH 300,000 (직전 COMPLETE 280,000) → COMPLETE, 전일 대비 +20,000
  * U3 인증 만료    : AUTH_FAILED 증권 + CASH 100,000 → PARTIAL (CODEF 호출 없음)
  * U4 오늘 실패    : ACTIVE 증권(어제 값 예수금 999,999 · 000660×4 가 DB에 남음, 오늘 CODEF 실패) + CASH 50,000 → PARTIAL, 어제 값 미사용
@@ -84,6 +91,22 @@ public final class E2eFixture {
         Linked u5 = linked(ConnectedAccountStatus.DISCONNECTED);
 
         return new Seeded(u1, u1Cash, u1Deposit, u2.getId(), u2Cash, u3, u4, u4Cash, u5);
+    }
+
+    /**
+     * U1 직전 정기 기록(COMPLETE) — 종목 행 수량 · 단가 포함. 오늘과 비교하면
+     * 005930 8주 → 10주(추가 매수), 069500 5주 유지, 111111 거래정지(단가 같음), 000660 2주 전량 매도
+     * 합계: 증권 1,186,000 + 현금 1,500,000 + 예금 2,000,000 = 4,686,000
+     */
+    public void u1PreviousRecord(SnapshotSaveService saveService, Seeded seeded, LocalDate date) {
+        saveService.save(seeded.u1().userId(), new SnapshotInput(date, date.atTime(16, 5),
+                List.of(Account.success(seeded.u1().securitiesAssetId(), new BigDecimal("1000000"), List.of(
+                        HoldingPrice.collected("005930", new BigDecimal("8"), new BigDecimal("72000")),
+                        HoldingPrice.collected("069500", new BigDecimal("5"), new BigDecimal("34800")),
+                        HoldingPrice.collected("111111", new BigDecimal("3"), new BigDecimal("12000")),
+                        HoldingPrice.collected("000660", new BigDecimal("2"), new BigDecimal("200000"))))),
+                List.of(new Manual(seeded.u1CashId(), AssetType.CASH, new BigDecimal("500000")),
+                        new Manual(seeded.u1DepositId(), AssetType.DEPOSIT, new BigDecimal("2000000")))));
     }
 
     // 지난 거래일에 수집해 둔 시세 — 거래정지 종목 평가에 쓰인다

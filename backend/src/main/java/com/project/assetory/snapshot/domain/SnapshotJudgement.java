@@ -18,6 +18,16 @@ public record SnapshotJudgement(
         List<Detail> details
 ) {
 
-    /** asset_detail_snapshots 1행 — ticker NULL은 자산 단위(증권 계좌 예수금 · 수기 자산) */
-    public record Detail(Long assetId, String ticker, BigDecimal amount) {}
+    /**
+     * asset_detail_snapshots 1행 — ticker NULL은 자산 단위(증권 계좌 예수금 · 수기 자산)
+     *
+     * @param quantity 종목 행만 — 평가에 쓴 보유수량. ticker NULL 행은 null
+     * @param price    종목 행만 — 평가에 쓴 단가(정상 = 그날 종가, 거래정지 = 직전 종가). ticker NULL 행은 null
+     */
+    public record Detail(Long assetId, String ticker, BigDecimal amount, BigDecimal quantity, BigDecimal price) {
+
+        public static Detail asset(Long assetId, BigDecimal amount) {
+            return new Detail(assetId, null, amount, null, null);
+        }
+    }
 }

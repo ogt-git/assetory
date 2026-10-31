@@ -12,6 +12,7 @@ import com.project.assetory.connect.exception.CodefSyncException;
 import com.project.assetory.connect.exception.CodefSyncLockConflictException;
 import com.project.assetory.connect.exception.RefreshCooldownException;
 import com.project.assetory.market.exception.KisApiException;
+import com.project.assetory.snapshot.exception.SnapshotNotFoundException;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
@@ -88,6 +89,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<?>> handleEntityNotFound(EntityNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.error(e.getMessage(), ErrorCode.RESOURCE_NOT_FOUND.name()));
+    }
+
+    // 자산 기록 없음 (없는 날짜 · 다른 사용자의 날짜 모두 같은 응답)
+    @ExceptionHandler(SnapshotNotFoundException.class)
+    public ResponseEntity<ApiResponse<?>> handleSnapshotNotFound(SnapshotNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(ErrorCode.SNAPSHOT_NOT_FOUND.getMessage(), ErrorCode.SNAPSHOT_NOT_FOUND.name()));
     }
 
     //보안 및 권한 핸들러

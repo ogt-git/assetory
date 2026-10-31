@@ -26,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
@@ -52,6 +53,7 @@ class SnapshotSaveServiceIntegrationTest extends IntegrationTestSupport {
     @Autowired ConnectedAccountRepository connectedAccountRepository;
     @Autowired TransactionTemplate transactionTemplate;
     @Autowired MeterRegistry meterRegistry;
+    @Autowired JdbcTemplate jdbcTemplate;
 
     private Long userId;
     private Long securitiesId;
@@ -124,8 +126,9 @@ class SnapshotSaveServiceIntegrationTest extends IntegrationTestSupport {
         assertThat(mon.getBaseSnapshotDate()).isEqualTo(THU);
         assertThat(mon.getDayChangeAmount()).isEqualByComparingTo("10000");
         assertThat(mon.getDayChangeRate()).isEqualByComparingTo("10.0000");
-        assertThat(mon.getMarketChangeAmount()).isNull();
-        assertThat(mon.getOtherChangeAmount()).isNull();
+        // 기준 = 직전 COMPLETE(THU) — 10주 × (6,000 − 5,000)
+        assertThat(mon.getMarketChangeAmount()).isEqualByComparingTo("10000");
+        assertThat(mon.getOtherChangeAmount()).isEqualByComparingTo("0");
         assertThat(mon.getCollectedAt()).isEqualTo(MON.atTime(16, 5));
         assertThat(mon.isHasEvent()).isFalse();
 
@@ -133,6 +136,56 @@ class SnapshotSaveServiceIntegrationTest extends IntegrationTestSupport {
         assertThat(fri.getStatus()).isEqualTo(SnapshotStatus.PARTIAL);
         assertThat(fri.getBaseSnapshotDate()).isNull();
         assertThat(fri.getDayChangeAmount()).isNull();
+        assertThat(fri.getMarketChangeAmount()).isNull();
+        assertThat(fri.getOtherChangeAmount()).isNull();
+    }
+
+    @Test
+    @DisplayName("시장가격 영향: 연속 COMPLETE + 가격 변동 · 추가 매수 → market = 계속 보유 수량 × Δp, other = 총변화 − market (05 §4.7)")
+    void marketChange_consecutiveComplete() {
+        AssetSnapshot thu = saveService.save(userId,
+                input(THU, account("0", HoldingPrice.collected("005930", d("10"), d("5000"))), "50000")).orElseThrow(); // 100,000
+        AssetSnapshot mon = saveService.save(userId,
+                input(MON, account("0", HoldingPrice.collected("005930", d("12"), d("6000"))), "50000")).orElseThrow(); // 122,000
+
+        assertThat(thu.getMarketChangeAmount()).isNull(); // 첫 기록 — 기준 없음
+        assertThat(thu.getOtherChangeAmount()).isNull();
+        assertThat(mon.getDayChangeAmount()).isEqualByComparingTo("22000");
+        assertThat(mon.getMarketChangeAmount()).isEqualByComparingTo("10000"); // min(10, 12) × 1,000
+        assertThat(mon.getOtherChangeAmount()).isEqualByComparingTo("12000");  // 늘어난 2주는 기타 자산 변화
+    }
+
+    @Test
+    @DisplayName("시장가격 영향 재실행: 같은 날 COMPLETE 재저장은 다시 계산, 더 나쁜 결과로는 덮어쓰지 않음")
+    void marketChange_rerun() {
+        saveService.save(userId, input(THU, account("0", HoldingPrice.collected("005930", d("10"), d("5000"))), "50000"));
+        saveService.save(userId, input(MON, account("0", HoldingPrice.collected("005930", d("10"), d("6000"))), "50000"));
+
+        AssetSnapshot recalculated = saveService.save(userId,
+                input(MON, account("0", HoldingPrice.collected("005930", d("10"), d("6500"))), "50000")).orElseThrow();
+        assertThat(recalculated.getMarketChangeAmount()).isEqualByComparingTo("15000");
+        assertThat(recalculated.getOtherChangeAmount()).isEqualByComparingTo("0");
+
+        AssetSnapshot kept = saveService.save(userId,
+                input(MON, Account.of(securitiesId, AccountStatus.FAILED), "50000")).orElseThrow();
+        assertThat(kept.getStatus()).isEqualTo(SnapshotStatus.COMPLETE);
+        assertThat(kept.getMarketChangeAmount()).isEqualByComparingTo("15000");
+        assertThat(kept.getOtherChangeAmount()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("시장가격 영향 전환기: 기준일 종목 행 quantity가 NULL(컬럼 추가 전 행) → market · other 모두 NULL, 0으로 채우지 않음")
+    void marketChange_baseRowWithoutQuantity_null() {
+        saveService.save(userId, input(THU, account("0", HoldingPrice.collected("005930", d("10"), d("5000"))), "50000"));
+        jdbcTemplate.update("update asset_detail_snapshots set quantity = null, price = null "
+                + "where asset_id = ? and ticker is not null and snapshot_date = ?", securitiesId, THU);
+
+        AssetSnapshot mon = saveService.save(userId,
+                input(MON, account("0", HoldingPrice.collected("005930", d("10"), d("6000"))), "50000")).orElseThrow();
+
+        assertThat(mon.getDayChangeAmount()).isEqualByComparingTo("10000"); // 전일 대비는 그대로 계산
+        assertThat(mon.getMarketChangeAmount()).isNull();
+        assertThat(mon.getOtherChangeAmount()).isNull();
     }
 
     @Test
@@ -148,6 +201,45 @@ class SnapshotSaveServiceIntegrationTest extends IntegrationTestSupport {
         assertThat(detail(MON, cashId, null).getAmount()).isEqualByComparingTo("50000");
         assertThat(snapshotRepository.findByUserIdAndSnapshotDate(userId, MON).orElseThrow().getStatus())
                 .isEqualTo(SnapshotStatus.PARTIAL);
+    }
+
+    @Test
+    @DisplayName("detail quantity · price: 종목 행은 평가에 쓴 수량 · 단가, ticker NULL 행(예수금 · 수기)은 NULL")
+    void detailQuantityPrice() {
+        saveService.save(userId, input(MON, account("100000",
+                HoldingPrice.collected("005930", d("10"), d("71200")),
+                HoldingPrice.halted("111111", d("5"), d("12000"))), "50000"));
+
+        AssetDetailSnapshot samsung = detail(MON, securitiesId, "005930");
+        assertThat(samsung.getQuantity()).isEqualByComparingTo("10");
+        assertThat(samsung.getPrice()).isEqualByComparingTo("71200");
+        AssetDetailSnapshot halted = detail(MON, securitiesId, "111111");
+        assertThat(halted.getQuantity()).isEqualByComparingTo("5");
+        assertThat(halted.getPrice()).isEqualByComparingTo("12000");
+        assertThat(halted.getAmount()).isEqualByComparingTo("60000");
+
+        for (AssetDetailSnapshot assetLevel : List.of(detail(MON, securitiesId, null), detail(MON, cashId, null))) {
+            assertThat(assetLevel.getQuantity()).isNull();
+            assertThat(assetLevel.getPrice()).isNull();
+        }
+    }
+
+    @Test
+    @DisplayName("같은 날 재실행(COMPLETE → COMPLETE): 종목 행 quantity · price 갱신, 이번에 없는 종목 행은 지운다")
+    void rerun_updatesQuantityPrice_removesMissingTicker() {
+        saveService.save(userId, input(MON, account("100000",
+                HoldingPrice.collected("005930", d("10"), d("71200")),
+                HoldingPrice.collected("035720", d("2"), d("40000"))), "50000"));
+
+        saveService.save(userId, input(MON, account("100000",
+                HoldingPrice.collected("005930", d("12"), d("70000"))), "50000"));
+
+        AssetDetailSnapshot samsung = detail(MON, securitiesId, "005930");
+        assertThat(samsung.getQuantity()).isEqualByComparingTo("12");
+        assertThat(samsung.getPrice()).isEqualByComparingTo("70000");
+        assertThat(samsung.getAmount()).isEqualByComparingTo("840000");
+        assertThat(detail(MON, securitiesId, "035720")).isNull();
+        assertThat(details(MON)).hasSize(3); // 예수금 · 005930 · 수기
     }
 
     @Test
@@ -231,6 +323,8 @@ class SnapshotSaveServiceIntegrationTest extends IntegrationTestSupport {
         assertThat(kept.getStatus()).isEqualTo(SnapshotStatus.COMPLETE);
         assertThat(kept.getTotalAsset()).isEqualByComparingTo("862000");
         assertThat(details(MON)).hasSize(3);
+        assertThat(detail(MON, securitiesId, "005930").getQuantity()).isEqualByComparingTo("10"); // detail도 그대로
+        assertThat(detail(MON, securitiesId, "005930").getPrice()).isEqualByComparingTo("71200");
     }
 
     @Test

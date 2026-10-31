@@ -72,6 +72,7 @@
 - 응답은 모두 `global/response/ApiResponse`로 감싼다. 실패는 `ErrorCode` + 도메인 예외 + `GlobalExceptionHandler`로 처리한다.
 - 외부 API 원문 메시지 · 예외 메시지를 응답에 그대로 내보내지 않는다 → `ErrorCode` 메시지로 바꾼다.
 - DTO 이름은 `*Request` / `*Response`. (`*Dto`는 이식 잔재 — 새로 만들지 않는다)
+- DTO 안의 내부 record에는 `@Schema(name = "<바깥 DTO 이름에서 Request/Response를 뺀 것><내부 이름>")`을 붙인다(예: `SnapshotDetailHoldingItem`). Swagger는 단순 이름이 같으면 스키마를 하나로 덮어써 다른 API 문서가 틀려진다.
 - 엔티티는 `BaseTimeEntity`를 상속한다. 금액은 `BigDecimal`(`double` 금지), 타입 정밀도는 05 §1.3.
 - 임계치 · 한도 · cron · 재시도 횟수는 하드코딩하지 않고 `application.yml`의 `assetory.*` 아래 설정값 + 환경변수 오버라이드로 둔다.
 - `data.sql`은 기동마다 실행된다 → id를 고정하고 `ON DUPLICATE KEY UPDATE`로 멱등하게 작성한다.

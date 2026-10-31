@@ -105,7 +105,8 @@ public class DailyAssetBatchService {
     private record CollectedAccount(Long userId, Long assetId, AccountStatus status,
                                     BigDecimal deposit, List<HoldingQuantity> holdings) {}
 
-    private record HoldingQuantity(String ticker, BigDecimal quantity) {}
+    // stockName은 거래정지 종목 시세 소급에만 쓴다 (없으면 소급이 종목정보를 조회)
+    private record HoldingQuantity(String ticker, String stockName, BigDecimal quantity) {}
 
     /**
      * 장 마감 지연일 전용 트리거 — 지연일이 아니면 아무것도 하지 않는다.
@@ -247,7 +248,7 @@ public class DailyAssetBatchService {
         // 이번 동기화가 방금 저장한 값 — SUCCESS 계좌만 읽는다
         BigDecimal deposit = assetRepository.findById(assetId).map(asset -> asset.getBalance()).orElse(null);
         List<HoldingQuantity> holdings = holdingRepository.findAllByAssetId(assetId).stream()
-                .map((Holding h) -> new HoldingQuantity(h.getTicker(), h.getQuantity()))
+                .map((Holding h) -> new HoldingQuantity(h.getTicker(), h.getStockName(), h.getQuantity()))
                 .toList();
         return new CollectedAccount(target.getUserId(), assetId, AccountStatus.SUCCESS, deposit, holdings);
     }
@@ -281,9 +282,9 @@ public class DailyAssetBatchService {
             return HoldingPrice.failed(holding.ticker(), holding.quantity());
         }
         if (result.status() == TickerStatus.HALTED) {
-            BigDecimal previousClose = priceCache.computeIfAbsent("H:" + holding.ticker(), key ->
-                    stockPriceRepository.findFirstByTickerAndTradeDateBeforeOrderByTradeDateDesc(holding.ticker(), snapshotDate)
-                            .map(StockPrice::getClosePrice)).orElse(null);
+            // 종목당 실행 1회 — 여러 사용자가 같은 종목을 보유해도 조회 · 소급은 한 번
+            BigDecimal previousClose = priceCache.computeIfAbsent("H:" + holding.ticker(),
+                    key -> haltedPreviousClose(holding, snapshotDate)).orElse(null);
             return HoldingPrice.halted(holding.ticker(), holding.quantity(), previousClose);
         }
         BigDecimal close = priceCache.computeIfAbsent("C:" + holding.ticker(), key ->
@@ -292,6 +293,32 @@ public class DailyAssetBatchService {
         return close == null
                 ? HoldingPrice.failed(holding.ticker(), holding.quantity())
                 : HoldingPrice.collected(holding.ticker(), holding.quantity(), close);
+    }
+
+    /**
+     * 거래정지 종목의 기준일 이전 최신 종가. 이력이 없으면 시세 소급(FR-MK-04)을 1회 해서 다시 찾는다 (C-04 — 장기 거래정지 종목이 매일 PARTIAL).
+     * 소급은 공유 시세(stock_prices)만 채운다 — 사용자 holdings를 다시 읽지 않으므로 "판정 입력은 이번 실행 결과만"(05 §11.2)과 충돌하지 않는다.
+     * 소급이 실패하거나 그래도 없으면 empty → 그 종목 실패(0으로 채우지 않음, AGENTS 5-C)
+     */
+    private Optional<BigDecimal> haltedPreviousClose(HoldingQuantity holding, LocalDate snapshotDate) {
+        Optional<BigDecimal> previousClose = findPreviousClose(holding.ticker(), snapshotDate);
+        if (previousClose.isPresent()) {
+            return previousClose;
+        }
+        try {
+            int saved = stockPriceCollectService.backfill(holding.ticker(), holding.stockName());
+            log.info("[DailyBatch] 거래정지 종목 직전 종가 없음 — 시세 소급 ticker={} saved={}", holding.ticker(), saved);
+        } catch (RuntimeException e) {
+            log.warn("[DailyBatch] 거래정지 종목 시세 소급 실패 — 그 종목 실패로 처리 ticker={} error={}",
+                    holding.ticker(), e.getClass().getSimpleName());
+            return Optional.empty();
+        }
+        return findPreviousClose(holding.ticker(), snapshotDate);
+    }
+
+    private Optional<BigDecimal> findPreviousClose(String ticker, LocalDate snapshotDate) {
+        return stockPriceRepository.findFirstByTickerAndTradeDateBeforeOrderByTradeDateDesc(ticker, snapshotDate)
+                .map(StockPrice::getClosePrice);
     }
 
     // batch.run — 실행 결과 (completed / holiday / aborted / deferred). 05 §12 반영 필요

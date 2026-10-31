@@ -4,12 +4,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.assetory.auth.mail.AuthMailSender;
 import com.project.assetory.connect.codef.CodefApiClient;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.context.ActiveProfiles;
@@ -21,6 +23,7 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.UUID;
 
@@ -56,6 +59,17 @@ public abstract class IntegrationTestSupport {
     @MockitoBean protected AuthMailSender authMailSender;
     @MockitoBean protected CodefApiClient codefApiClient;
     @Autowired @Qualifier("codefSyncExecutor") private ThreadPoolTaskExecutor codefSyncExecutor;
+    @Autowired private StringRedisTemplate integrationRedis;
+
+    // 테스트 컨텍스트마다 create-drop으로 스키마를 다시 만들어 user_id가 1부터 다시 매겨지지만, Redis 컨테이너는 JVM 전체에서 공유된다.
+    // 이전 컨텍스트가 남긴 같은 user_id의 새로고침 쿨다운 키가 새 사용자에게 걸리지 않게 테스트마다 지운다
+    @BeforeEach
+    void clearUserScopedRedisKeys() {
+        Set<String> keys = integrationRedis.keys("codef:refresh:cooldown:*");
+        if (keys != null && !keys.isEmpty()) {
+            integrationRedis.delete(keys);
+        }
+    }
 
     // 증권 연결 성공 뒤 비동기 최초 수집(InitialSyncListener)이 테스트 메서드보다 오래 돌면, 다음 테스트의 스텁 설정과
     // 같은 CodefApiClient 목을 동시에 호출해 스텁이 다른 메서드에 붙는다(Mockito 스텁은 스레드 안전하지 않음) → 간헐 실패.

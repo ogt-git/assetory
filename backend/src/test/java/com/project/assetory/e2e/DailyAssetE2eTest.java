@@ -47,6 +47,7 @@ import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -62,9 +63,12 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 일일 자산 기록 배치 E2E — 키 · 실제 계좌 없이 전체 흐름을 검증한다 (6주차 종합 점검 E1~E6 · SQL · 지표의 자동화).
+ * 일일 자산 기록 배치 E2E — 키 · 실제 계좌 없이 전체 흐름을 검증한다 (6주차 종합 점검 E1~E6 · SQL · 지표의 자동화,
+ * E7 연동 직후 시세 소급).
  * - 한투: 가짜 HTTP 서버(FakeKisServer) — 실제 KisApiClient · 토큰 Redis 저장 · 메트릭을 그대로 거친다
  * - CODEF: CodefApiClient 목 + 시나리오 응답 JSON (src/test/resources/e2e/codef)
  * - 데이터: E2eFixture (U1~U5, 모두 테스트 전용 더미 값)
@@ -159,6 +163,8 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
         // U2 — 직전 정기 기록(PREV COMPLETE 280,000)
         snapshotSaveService.save(seeded.u2(), new SnapshotInput(PREV, PREV.atTime(16, 5), List.of(),
                 List.of(new Manual(seeded.u2CashId(), AssetType.CASH, new BigDecimal("280000")))));
+        // U1 — 직전 정기 기록(PREV COMPLETE 4,686,000, 종목 행 수량 · 단가 포함)
+        fixture.u1PreviousRecord(snapshotSaveService, seeded, PREV);
 
         at(DAY.atTime(16, 0));
     }
@@ -254,9 +260,50 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
         assertThat(output.getAll()).contains("토큰 발급 실패").doesNotContain(APP_KEY).doesNotContain(APP_SECRET);
     }
 
+    // ================= E7 =================
+
+    @Test
+    @DisplayName("E7 증권 연동 → 최초 수집 → 보유 종목 시세 소급: stock_prices만 생기고 asset_snapshots · asset_detail_snapshots는 그대로")
+    void e7_linkBackfill() throws Exception {
+        // 테스트 전용 더미 connectedId — 이 연동의 CODEF 응답은 U1과 같은 포트폴리오(005930 · 069500 · 111111)
+        String connectedId = "e2e-cid-e7-" + java.util.UUID.randomUUID();
+        codef.put(connectedId, json("portfolio-success.json"));
+        when(codefApiClient.createAccount(any())).thenReturn(objectMapper.writeValueAsString(Map.of(
+                "result", Map.of("code", "CF-00000", "message", "성공"),
+                "data", Map.of("connectedId", connectedId))));
+        int snapshotsBefore = jdbc.queryForObject("select count(*) from asset_snapshots", Integer.class);
+        int detailsBefore = jdbc.queryForObject("select count(*) from asset_detail_snapshots", Integer.class);
+        String accessToken = signupAndGetAccessToken();
+
+        String body = mockMvc.perform(multipart("/api/codef/connect")
+                        .param("organization", E2eFixture.CODEF_ORG).param("businessType", "ST").param("loginType", "1")
+                        .param("id", "e2e-login-id").param("password", "e2e-login-pw")
+                        .param("accountNumber", E2eFixture.ACCOUNT_NUMBER)
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        long connectionId = objectMapper.readTree(body).get("data").get("id").asLong();
+
+        // 연동 응답은 수집 · 소급을 기다리지 않는다 — 비동기 작업이 끝날 때까지 기다린다
+        awaitUntil(() -> priceExists("005930", DAY) && priceExists("069500", DAY), Duration.ofSeconds(15));
+
+        assertThat(jdbc.queryForObject("select concat(job_type, ':', status) from sync_jobs where connected_account_id = ?",
+                String.class, connectionId)).isEqualTo("BACKFILL:SUCCESS");
+        // 111111은 한투 응답이 PREV 1행뿐 — 가장 오래된 날은 직전 행이 없어 저장하지 않는다(05 §4.9). PREV 행은 픽스처가 넣은 것
+        assertThat(priceExists("111111", DAY)).isFalse();
+        // 소급은 종목 시세만 — 사용자 자산 기록은 만들지 않는다 (01 §3.1, FR-AS-05)
+        assertThat(jdbc.queryForObject("select count(*) from asset_snapshots", Integer.class)).isEqualTo(snapshotsBefore);
+        assertThat(jdbc.queryForObject("select count(*) from asset_detail_snapshots", Integer.class)).isEqualTo(detailsBefore);
+        assertThat(snapshotCount(DAY)).isZero();
+    }
+
+    private boolean priceExists(String ticker, LocalDate date) {
+        return stockPriceRepository.findByTickerAndTradeDate(ticker, date).isPresent();
+    }
+
     // ================= 점검 단언 =================
 
-    // asset_snapshots — 사용자별 상태 · 금액 · 전일 대비 · total = 자산군 합 · 시장/기타 변화 NULL
+    // asset_snapshots — 사용자별 상태 · 금액 · 전일 대비 · total = 자산군 합 · 시장가격 영향 / 기타 자산 변화
     private void assertSnapshots() {
         Map<String, Object> u1 = snapshot(seeded.u1().userId());
         assertThat(u1.get("status")).isEqualTo("COMPLETE");
@@ -264,7 +311,13 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
         assertThat((BigDecimal) u1.get("cash_amount")).isEqualByComparingTo("1500000");      // 예수금 1,000,000 + CASH 500,000
         assertThat((BigDecimal) u1.get("deposit_amount")).isEqualByComparingTo("2000000");
         assertThat((BigDecimal) u1.get("total_asset")).isEqualByComparingTo("4423000");
-        assertThat(u1.get("base_snapshot_date")).isNull();                                    // 첫 기록
+        assertThat(u1.get("base_snapshot_date").toString()).isEqualTo(PREV.toString());
+        assertThat((BigDecimal) u1.get("day_change_amount")).isEqualByComparingTo("-263000");   // 4,423,000 − 4,686,000
+        assertThat((BigDecimal) u1.get("day_change_rate")).isEqualByComparingTo("-5.6125");
+        // 시장가격 영향 (05 §4.7): 005930 min(8,10)×(71,200−72,000) −6,400 + 069500 5×(35,000−34,800) +1,000
+        //   + 111111 거래정지 0 + 000660 전량 매도 0 = −5,400 / 기타 = −263,000 − (−5,400)
+        assertThat((BigDecimal) u1.get("market_change_amount")).isEqualByComparingTo("-5400");
+        assertThat((BigDecimal) u1.get("other_change_amount")).isEqualByComparingTo("-257600");
 
         Map<String, Object> u2 = snapshot(seeded.u2());
         assertThat(u2.get("status")).isEqualTo("COMPLETE");
@@ -272,6 +325,8 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
         assertThat(u2.get("base_snapshot_date").toString()).isEqualTo(PREV.toString());
         assertThat((BigDecimal) u2.get("day_change_amount")).isEqualByComparingTo("20000");
         assertThat((BigDecimal) u2.get("day_change_rate")).isEqualByComparingTo("7.1429");
+        assertThat((BigDecimal) u2.get("market_change_amount")).isEqualByComparingTo("0");     // 종목 없음 → 정상 0
+        assertThat((BigDecimal) u2.get("other_change_amount")).isEqualByComparingTo("20000");
 
         Map<String, Object> u3 = snapshot(seeded.u3().userId());
         assertThat(u3.get("status")).isEqualTo("PARTIAL");
@@ -288,8 +343,14 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
                 + "coalesce(securities_amount,0) + coalesce(cash_amount,0) + coalesce(deposit_amount,0)", Integer.class, DAY)).isZero();
         assertThat(jdbc.queryForObject("select count(*) from asset_snapshots where snapshot_date = ? and status <> 'COMPLETE' "
                 + "and (base_snapshot_date is not null or day_change_amount is not null or day_change_rate is not null)", Integer.class, DAY)).isZero();
+        // 시장가격 영향 · 기타 자산 변화 (01 §14 #1 · #2 확정, 05 §4.7): COMPLETE + 기준 있음 → 둘 다 값, 그 외 → 둘 다 NULL
+        assertThat(jdbc.queryForObject("select count(*) from asset_snapshots where snapshot_date = ? and status = 'COMPLETE' "
+                + "and base_snapshot_date is not null and (market_change_amount is null or other_change_amount is null)",
+                Integer.class, DAY)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from asset_snapshots where (status <> 'COMPLETE' or base_snapshot_date is null) "
+                + "and (market_change_amount is not null or other_change_amount is not null)", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("select count(*) from asset_snapshots where market_change_amount is not null "
-                + "or other_change_amount is not null", Integer.class)).isZero();
+                + "and other_change_amount <> day_change_amount - market_change_amount", Integer.class)).isZero();
     }
 
     // stock_prices — 보유 합집합 중 거래정지 제외 행, 변동률 부호, 직전 종가
@@ -386,7 +447,7 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
 
     private Map<String, Object> snapshot(Long userId) {
         return jdbc.queryForMap("select status, total_asset, securities_amount, cash_amount, deposit_amount, "
-                + "base_snapshot_date, day_change_amount, day_change_rate from asset_snapshots where user_id = ? and snapshot_date = ?",
+                + "base_snapshot_date, day_change_amount, day_change_rate, market_change_amount, other_change_amount from asset_snapshots where user_id = ? and snapshot_date = ?",
                 userId, DAY);
     }
 

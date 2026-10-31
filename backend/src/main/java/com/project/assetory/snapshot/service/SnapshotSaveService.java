@@ -4,6 +4,7 @@ import com.project.assetory.asset.repository.AssetRepository;
 import com.project.assetory.snapshot.domain.AssetDetailSnapshot;
 import com.project.assetory.snapshot.domain.AssetSnapshot;
 import com.project.assetory.snapshot.domain.DayChange;
+import com.project.assetory.snapshot.domain.MarketChange;
 import com.project.assetory.snapshot.domain.SnapshotInput;
 import com.project.assetory.snapshot.domain.SnapshotJudge;
 import com.project.assetory.snapshot.domain.SnapshotJudgement;
@@ -18,7 +19,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -31,7 +31,7 @@ import java.util.Set;
 /**
  * 일별 스냅샷 저장 (FR-AS-02, 05 §4.7 · §4.8 · §11.2) — 정기 배치 한 실행의 수집 결과로 판정해 저장한다.
  * 수동 새로고침 경로에서는 호출하지 않는다(스냅샷은 정기 배치에서만).
- * - asset_snapshots: UNIQUE (user_id, snapshot_date) upsert. COMPLETE면 직전 COMPLETE 대비 변화를 미리 계산해 둔다
+ * - asset_snapshots: UNIQUE (user_id, snapshot_date) upsert. COMPLETE면 직전 COMPLETE 대비 변화 · 시장가격 영향 · 기타 자산 변화를 미리 계산해 둔다
  * - asset_detail_snapshots: 성공한 자산 · 종목만. ticker NULL 행의 중복은 이 조회 후 갱신으로 막는다(MySQL UNIQUE는 NULL을 막지 못함)
  *   변화액 기준은 총자산과 같은 직전 COMPLETE 날짜 — 사이의 PARTIAL detail 행과 비교하지 않는다(AGENTS 5-C)
  * - 같은 날 다시 저장하면: 기존 COMPLETE는 더 나쁜 결과(PARTIAL · FAILED)로 덮어쓰지 않는다. 그 외(같은 등급 · 더 좋은 결과)는 덮어쓰고,
@@ -86,13 +86,18 @@ public class SnapshotSaveService {
                 kept[0] = true;
                 return existing.get();
             }
+            // 기준일(직전 COMPLETE) detail — 같은 사용자 행만 한 번에 조회해 시장가격 영향 · detail 변화액에 같이 쓴다
+            LocalDate baseDate = previousComplete.map(AssetSnapshot::getSnapshotDate).orElse(null);
+            Map<DetailKey, Detail> baseDetails = baseDetails(userId, baseDate);
+            MarketChange marketChange = SnapshotJudge.marketChange(
+                    List.copyOf(baseDetails.values()), judgement.details(), dayChange);
+
             AssetSnapshot snapshot = existing
                     .orElseGet(() -> AssetSnapshot.create(userRepository.getReferenceById(userId), date));
-            snapshot.apply(judgement, input.collectedAt(), dayChange);
+            snapshot.apply(judgement, input.collectedAt(), dayChange, marketChange);
             snapshotRepository.save(snapshot);
 
-            LocalDate baseDate = previousComplete.map(AssetSnapshot::getSnapshotDate).orElse(null);
-            saveDetails(userId, date, baseDate, judgement.details());
+            saveDetails(userId, date, baseDetails, judgement.details());
             return snapshot;
         });
 
@@ -109,7 +114,21 @@ public class SnapshotSaveService {
         return existing == SnapshotStatus.COMPLETE && incoming != SnapshotStatus.COMPLETE;
     }
 
-    private void saveDetails(Long userId, LocalDate date, LocalDate baseDate, List<Detail> details) {
+    // 기준일 detail 행 (asset_id, ticker) → 값. 직전 COMPLETE가 없으면 빈 맵
+    private Map<DetailKey, Detail> baseDetails(Long userId, LocalDate baseDate) {
+        Map<DetailKey, Detail> base = new HashMap<>();
+        if (baseDate == null) {
+            return base;
+        }
+        for (AssetDetailSnapshot row : detailRepository.findAllByAssetUserIdAndSnapshotDate(userId, baseDate)) {
+            Long assetId = row.getAsset().getId();
+            base.put(new DetailKey(assetId, row.getTicker()),
+                    new Detail(assetId, row.getTicker(), row.getAmount(), row.getQuantity(), row.getPrice()));
+        }
+        return base;
+    }
+
+    private void saveDetails(Long userId, LocalDate date, Map<DetailKey, Detail> baseDetails, List<Detail> details) {
         Map<DetailKey, AssetDetailSnapshot> existing = new HashMap<>();
         for (AssetDetailSnapshot row : detailRepository.findAllByAssetUserIdAndSnapshotDate(userId, date)) {
             existing.put(new DetailKey(row.getAsset().getId(), row.getTicker()), row);
@@ -123,9 +142,10 @@ public class SnapshotSaveService {
             if (row == null) {
                 row = AssetDetailSnapshot.create(assetRepository.getReferenceById(detail.assetId()), detail.ticker(), date);
             }
-            row.apply(detail.amount(), baseAmount(detail, baseDate)
-                    .map(previous -> detail.amount().subtract(previous))
-                    .orElse(null));
+            // 같은 (asset_id, ticker)의 기준일 행 대비 — 직전 COMPLETE가 없거나 그날 행이 없으면 NULL
+            Detail base = baseDetails.get(key);
+            row.apply(detail.amount(), detail.quantity(), detail.price(),
+                    base == null ? null : detail.amount().subtract(base.amount()));
             detailRepository.save(row);
         }
 
@@ -133,17 +153,6 @@ public class SnapshotSaveService {
         existing.entrySet().stream()
                 .filter(entry -> !current.contains(entry.getKey()))
                 .forEach(entry -> detailRepository.delete(entry.getValue()));
-    }
-
-    // 같은 (asset_id, ticker)의 기준일(직전 COMPLETE 날짜) detail 행 금액 — 직전 COMPLETE가 없거나 그날 행이 없으면 empty (변화액 NULL)
-    private Optional<BigDecimal> baseAmount(Detail detail, LocalDate baseDate) {
-        if (baseDate == null) {
-            return Optional.empty();
-        }
-        Optional<AssetDetailSnapshot> base = detail.ticker() == null
-                ? detailRepository.findByAssetIdAndTickerIsNullAndSnapshotDate(detail.assetId(), baseDate)
-                : detailRepository.findByAssetIdAndTickerAndSnapshotDate(detail.assetId(), detail.ticker(), baseDate);
-        return base.map(AssetDetailSnapshot::getAmount);
     }
 
     private record DetailKey(Long assetId, String ticker) {
