@@ -26,6 +26,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -144,21 +145,93 @@ class KisLiveVerificationTest {
         line("\nV4: 16:00 이후 실행한 파일과 다음 날 실행한 파일의 같은 거래일 행을 비교한다 (build/kis-live/verification-*.md).");
     }
 
-    // 검증용 직접 호출 — 클라이언트 스로틀을 거치지 않으므로 호출 전 1초 쉬고, EGW00201(초당 건수 초과)이면 최대 2회 더 시도 (C-07)
+    @Test
+    @Order(4)
+    @DisplayName("V4-b — 종가 조회 방식 비교: inquire-daily-price · itemchartprice × FID_ORG_ADJ_PRC 0 · 1 (005930 최근 5거래일)")
+    void v4b_closePriceSources() {
+        line("\n## V4-b 종가 조회 방식 비교 (005930)");
+        line("- 공식 종가(사용자 확인값): 2026-10-27 225,000 · 2026-10-29 230,500");
+        line("- 배치(KisApiClient.getDailyPrices)는 inquire-daily-price + FID_ORG_ADJ_PRC=0");
+        String to = LocalDate.now(KST).format(DateTimeFormatter.BASIC_ISO_DATE);
+        String from = LocalDate.now(KST).minusDays(14).format(DateTimeFormatter.BASIC_ISO_DATE);
+        Map<String, JsonNode> sources = new LinkedHashMap<>();
+        for (String adj : List.of("0", "1")) {
+            sources.put("daily-price adj=" + adj, directGet(DAILY_PRICE_PATH,
+                    Map.of("m", "J", "t", "005930", "p", "D", "adj", adj), "FHKST01010400").path("output"));
+            sources.put("itemchart adj=" + adj, directGet(ITEM_CHART_PATH,
+                    Map.of("m", "J", "t", "005930", "from", from, "to", to, "p", "D", "adj", adj), "FHKST03010100").path("output2"));
+        }
+        // 시장 구분 — J = KRX, NX = 넥스트레이드, UN = 통합. 일별 행에 NXT 거래(~20:00)가 섞이는지 본다
+        for (String market : List.of("NX", "UN")) {
+            sources.put("daily-price m=" + market, directGet(DAILY_PRICE_PATH,
+                    Map.of("m", market, "t", "005930", "p", "D", "adj", "0"), "FHKST01010400").path("output"));
+        }
+        line("\n| 거래일 | " + String.join(" | ", sources.keySet()) + " |");
+        line("|---|" + "---|".repeat(sources.size()));
+        JsonNode base = sources.values().iterator().next();
+        for (int i = 0; i < Math.min(5, base.size()); i++) {
+            String date = base.get(i).path("stck_bsop_date").asText();
+            StringBuilder row = new StringBuilder("| " + date + " |");
+            for (JsonNode rows : sources.values()) {
+                row.append(' ').append(closeAndVolume(rows, date)).append(" |");
+            }
+            line(row.toString());
+        }
+        line("\n칸 = 종가 (거래량). 공식 종가와 같은 열이 실제 체결 종가를 주는 조회 방식이다.");
+    }
+
+    @Test
+    @Order(5)
+    @DisplayName("V4-c — 시간외 일자별 시세(FHPST02320000) 원문 필드: 일별 행 종가가 시간외 단일가를 반영하는지 (005930)")
+    void v4c_overtimeDailyPrices() {
+        line("\n## V4-c 시간외 일자별 시세 (005930)");
+        line("- 공식 종가(사용자 확인값): 2026-10-27 225,000 · 2026-10-29 230,500 · 2026-10-30 220,000");
+        JsonNode body = directGet(OVERTIME_DAILY_PATH, Map.of("m", "J", "t", "005930"), "FHPST02320000");
+        line("- rt_cd=" + body.path("rt_cd").asText() + " msg_cd=" + body.path("msg_cd").asText());
+        // 필드 이름을 확인하지 못했으므로 행마다 원문 필드를 모두 남긴다
+        JsonNode rows = body.path("output2");
+        for (int i = 0; i < Math.min(5, rows.size()); i++) {
+            StringBuilder fields = new StringBuilder();
+            rows.get(i).fields().forEachRemaining(f -> fields.append(f.getKey()).append('=').append(f.getValue().asText()).append(' '));
+            line("- " + fields.toString().trim());
+        }
+        line("\n판정: 공식 종가가 stck_clpr에, 일별 시세(inquire-daily-price) 종가가 시간외 단일가 필드에 있으면 일별 행에 시간외가 섞인 것이다.");
+    }
+
+    private static String closeAndVolume(JsonNode rows, String date) {
+        for (JsonNode r : rows) {
+            if (date.equals(r.path("stck_bsop_date").asText())) {
+                return r.path("stck_clpr").asText() + " (" + r.path("acml_vol").asText() + ")";
+            }
+        }
+        return "없음";
+    }
+
+    private static final String DAILY_PRICE_PATH = "/uapi/domestic-stock/v1/quotations/inquire-daily-price"
+            + "?FID_COND_MRKT_DIV_CODE={m}&FID_INPUT_ISCD={t}&FID_PERIOD_DIV_CODE={p}&FID_ORG_ADJ_PRC={adj}";
+    private static final String ITEM_CHART_PATH = "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
+            + "?FID_COND_MRKT_DIV_CODE={m}&FID_INPUT_ISCD={t}&FID_INPUT_DATE_1={from}&FID_INPUT_DATE_2={to}"
+            + "&FID_PERIOD_DIV_CODE={p}&FID_ORG_ADJ_PRC={adj}";
+    private static final String OVERTIME_DAILY_PATH = "/uapi/domestic-stock/v1/quotations/inquire-daily-overtimeprice"
+            + "?FID_COND_MRKT_DIV_CODE={m}&FID_INPUT_ISCD={t}";
+
     private static JsonNode itemChartPriceAround20180504() {
+        return directGet(ITEM_CHART_PATH,
+                Map.of("m", "J", "t", "005930", "from", "20180420", "to", "20180510", "p", "D", "adj", "1"), "FHKST03010100");
+    }
+
+    // 검증용 직접 호출 — 클라이언트 스로틀을 거치지 않으므로 호출 전 1초 쉬고, EGW00201(초당 건수 초과)이면 최대 2회 더 시도 (C-07)
+    private static JsonNode directGet(String uri, Map<String, String> params, String trId) {
         JsonNode body = null;
         for (int attempt = 1; attempt <= 3; attempt++) {
             pause(1000);
             body = restClient.get()
-                    .uri("/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
-                                    + "?FID_COND_MRKT_DIV_CODE={m}&FID_INPUT_ISCD={t}&FID_INPUT_DATE_1={from}&FID_INPUT_DATE_2={to}"
-                                    + "&FID_PERIOD_DIV_CODE={p}&FID_ORG_ADJ_PRC={adj}",
-                            Map.of("m", "J", "t", "005930", "from", "20180420", "to", "20180510", "p", "D", "adj", "1"))
+                    .uri(uri, params)
                     .headers(h -> {
                         h.setBearerAuth(tokenManager.getToken());
                         h.set("appkey", properties.appKey());
                         h.set("appsecret", properties.appSecret());
-                        h.set("tr_id", "FHKST03010100");
+                        h.set("tr_id", trId);
                         h.set("custtype", "P");
                     })
                     .retrieve()
