@@ -29,7 +29,7 @@
 ## 4. 기술 스택 (고정 · 주의할 것만)
 - Java 17 · Spring Boot 3.5 · MySQL 8.0 · Redis 7. 시간대 Asia/Seoul.
 - React **18.3.1 고정**(`@types/react` 포함, 19로 올리지 않는다) · TypeScript 6 · Vite 8 · Tailwind 4 · Node 24(`frontend/.nvmrc`).
-- 프론트 린트는 ESLint가 아니라 **oxlint**, 포맷은 prettier(singleQuote).
+- 프론트 린트는 ESLint가 아니라 **oxlint**, 포맷은 prettier(singleQuote, 세미콜론 없음 `semi: false`).
 
 ## 5. 개발 규칙
 ### A. 문서 우선순위
@@ -72,6 +72,7 @@
 - 응답은 모두 `global/response/ApiResponse`로 감싼다. 실패는 `ErrorCode` + 도메인 예외 + `GlobalExceptionHandler`로 처리한다.
 - 외부 API 원문 메시지 · 예외 메시지를 응답에 그대로 내보내지 않는다 → `ErrorCode` 메시지로 바꾼다.
 - DTO 이름은 `*Request` / `*Response`. (`*Dto`는 이식 잔재 — 새로 만들지 않는다)
+- DTO 안의 내부 record에는 `@Schema(name = "<바깥 DTO 이름에서 Request/Response를 뺀 것><내부 이름>")`을 붙인다(예: `SnapshotDetailHoldingItem`). Swagger는 단순 이름이 같으면 스키마를 하나로 덮어써 다른 API 문서가 틀려진다.
 - 엔티티는 `BaseTimeEntity`를 상속한다. 금액은 `BigDecimal`(`double` 금지), 타입 정밀도는 05 §1.3.
 - 임계치 · 한도 · cron · 재시도 횟수는 하드코딩하지 않고 `application.yml`의 `assetory.*` 아래 설정값 + 환경변수 오버라이드로 둔다.
 - `data.sql`은 기동마다 실행된다 → id를 고정하고 `ON DUPLICATE KEY UPDATE`로 멱등하게 작성한다.
@@ -128,6 +129,7 @@
 ```bash
 docker compose up -d                       # 루트. 로컬 MySQL · Redis (.env 필요, .env.example 참고)
 cd backend && ./gradlew bootRun            # 기본 프로필 local, 루트 .env를 읽는다
+cd backend && ./gradlew bootTestRun        # fake 프로필 — 데모 계정 · 가짜 한투 · CODEF, 매번 새 DB (Docker 필요, docs/ops/fake-profile.md)
 cd backend && ./gradlew test               # 전체 테스트 (Docker 필요)
 cd backend && ./gradlew test --tests '*StockAssetParserTest'   # 단일 테스트
 cd backend && ./gradlew build              # 빌드 + 테스트

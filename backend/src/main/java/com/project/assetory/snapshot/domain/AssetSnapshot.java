@@ -73,7 +73,7 @@ public class AssetSnapshot extends BaseTimeEntity {
     @Column(name = "day_change_rate", precision = 8, scale = 4)
     private BigDecimal dayChangeRate;
 
-    // TODO(01-§14 #1 #2 7주차): 시장가격 영향 · 기타 자산 변화 — 공식 확정 전까지 NULL
+    // 시장가격 영향 · 기타 자산 변화 — 직전 COMPLETE 대비, 둘 다 NULL이거나 둘 다 값 (05 §4.7)
     @Column(name = "market_change_amount", precision = 18, scale = 2)
     private BigDecimal marketChangeAmount;
 
@@ -91,7 +91,7 @@ public class AssetSnapshot extends BaseTimeEntity {
     }
 
     // 같은 날 다시 저장하면 판정 결과로 덮어쓴다 (재실행 정책은 배치 조립 단계에서 결정)
-    public void apply(SnapshotJudgement judgement, LocalDateTime collectedAt, DayChange dayChange) {
+    public void apply(SnapshotJudgement judgement, LocalDateTime collectedAt, DayChange dayChange, MarketChange marketChange) {
         this.status = judgement.status();
         this.collectedAt = collectedAt;
         this.totalAsset = judgement.totalAsset();
@@ -101,7 +101,7 @@ public class AssetSnapshot extends BaseTimeEntity {
         this.baseSnapshotDate = dayChange.baseSnapshotDate();
         this.dayChangeAmount = dayChange.amount();
         this.dayChangeRate = dayChange.rate();
-        this.marketChangeAmount = null;
-        this.otherChangeAmount = null;
+        this.marketChangeAmount = marketChange.market();
+        this.otherChangeAmount = marketChange.other();
     }
 }

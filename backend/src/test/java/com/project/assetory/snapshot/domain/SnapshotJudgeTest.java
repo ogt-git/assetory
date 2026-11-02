@@ -248,6 +248,55 @@ class SnapshotJudgeTest {
     }
 
     @Nested
+    @DisplayName("detail 수량 · 단가 — 평가에 쓴 값 그대로 (05 §4.8)")
+    class DetailQuantityPrice {
+
+        @Test
+        @DisplayName("종목 detail: quantity · price = 입력값, amount = HALF_UP(quantity × price, 2)")
+        void tickerDetail_keepsQuantityAndPrice() {
+            SnapshotJudgement j = judge(List.of(okAccount(ACC1, "0",
+                    collected("A00001", "0.3333", "1000.55"),
+                    collected("005930", "10", "71200"))), List.of());
+
+            Detail fractional = detail(j, ACC1, "A00001").orElseThrow();
+            assertThat(fractional.quantity()).isEqualByComparingTo("0.3333");
+            assertThat(fractional.price()).isEqualByComparingTo("1000.55");
+            assertThat(fractional.amount()).isEqualByComparingTo(
+                    fractional.quantity().multiply(fractional.price()).setScale(2, java.math.RoundingMode.HALF_UP));
+
+            Detail samsung = detail(j, ACC1, "005930").orElseThrow();
+            assertThat(samsung.quantity()).isEqualByComparingTo("10");
+            assertThat(samsung.price()).isEqualByComparingTo("71200");
+            assertThat(samsung.amount()).isEqualByComparingTo("712000");
+        }
+
+        @Test
+        @DisplayName("거래정지 종목: price = 직전 종가")
+        void haltedDetail_priceIsPreviousClose() {
+            SnapshotJudgement j = judge(List.of(okAccount(ACC1, "0",
+                    HoldingPrice.halted("111111", d("5"), d("12000")))), List.of());
+
+            Detail halted = detail(j, ACC1, "111111").orElseThrow();
+            assertThat(halted.quantity()).isEqualByComparingTo("5");
+            assertThat(halted.price()).isEqualByComparingTo("12000");
+            assertThat(halted.amount()).isEqualByComparingTo("60000");
+        }
+
+        @Test
+        @DisplayName("ticker NULL detail(증권 예수금 · 수기 자산): quantity · price 모두 NULL")
+        void assetLevelDetail_nullQuantityAndPrice() {
+            SnapshotJudgement j = judge(List.of(okAccount(ACC1, "100000", collected("005930", "10", "71200"))),
+                    List.of(cash("50000"), new Manual(DEPOSIT_ASSET, AssetType.DEPOSIT, d("1000000"))));
+
+            for (long assetId : new long[]{ACC1, CASH_ASSET, DEPOSIT_ASSET}) {
+                Detail assetLevel = detail(j, assetId, null).orElseThrow();
+                assertThat(assetLevel.quantity()).isNull();
+                assertThat(assetLevel.price()).isNull();
+            }
+        }
+    }
+
+    @Nested
     @DisplayName("자산군 금액 — 단위가 전부 실패하면 NULL, 대상 자체가 없으면 0 (Step 4 확정 7)")
     class ClassAmounts {
 
@@ -390,6 +439,159 @@ class SnapshotJudgeTest {
 
             assertThat(SnapshotJudge.dayChange(partial, DAY.minusDays(1), d("100"))).isEqualTo(DayChange.NONE);
             assertThat(SnapshotJudge.dayChange(failed, DAY.minusDays(1), d("100"))).isEqualTo(DayChange.NONE);
+        }
+    }
+
+    @Nested
+    @DisplayName("시장가격 영향 — 계속 보유한 수량 × 가격 변화 (05 §4.7, 01 §14 #1 · #2)")
+    class MarketChanges {
+
+        private static final LocalDate BASE = DAY.minusDays(1);
+
+        // 종목 행 — amount = HALF_UP2(q × p) (05 §4.8 불변식)
+        private static Detail stock(long assetId, String ticker, String qty, String price) {
+            BigDecimal q = qty == null ? null : d(qty);
+            BigDecimal p = price == null ? null : d(price);
+            BigDecimal amount = q == null || p == null ? d("0") : q.multiply(p).setScale(2, java.math.RoundingMode.HALF_UP);
+            return new Detail(assetId, ticker, amount, q, p);
+        }
+
+        private static DayChange change(String amount) {
+            return new DayChange(BASE, d(amount), null);
+        }
+
+        @Test
+        @DisplayName("1. 계속 보유 · 가격 상승 → market = q × Δp, other = day_change − market")
+        void held_priceUp() {
+            MarketChange m = SnapshotJudge.marketChange(
+                    List.of(stock(ACC1, "005930", "10", "70000")),
+                    List.of(stock(ACC1, "005930", "10", "71200")),
+                    change("112000"));
+
+            assertThat(m.market()).isEqualByComparingTo("12000");
+            assertThat(m.other()).isEqualByComparingTo("100000");
+        }
+
+        @Test
+        @DisplayName("2. 추가 매수(10 → 15주) → 계속 보유 10주만 반영")
+        void added_minIsBase() {
+            MarketChange m = SnapshotJudge.marketChange(
+                    List.of(stock(ACC1, "005930", "10", "70000")),
+                    List.of(stock(ACC1, "005930", "15", "71200")),
+                    change("368000"));
+
+            assertThat(m.market()).isEqualByComparingTo("12000");
+            assertThat(m.other()).isEqualByComparingTo("356000");
+        }
+
+        @Test
+        @DisplayName("3. 일부 매도(10 → 4주) → 계속 보유 4주만 반영")
+        void sold_minIsToday() {
+            MarketChange m = SnapshotJudge.marketChange(
+                    List.of(stock(ACC1, "005930", "10", "70000")),
+                    List.of(stock(ACC1, "005930", "4", "71200")),
+                    change("-415200"));
+
+            assertThat(m.market()).isEqualByComparingTo("4800");
+            assertThat(m.other()).isEqualByComparingTo("-420000");
+        }
+
+        @Test
+        @DisplayName("4. 전량 매도 종목 · 신규 종목 → 그 종목 기여 0")
+        void soldOutAndNew_zero() {
+            MarketChange m = SnapshotJudge.marketChange(
+                    List.of(stock(ACC1, "005930", "10", "70000"), stock(ACC1, "000660", "3", "200000")),
+                    List.of(stock(ACC1, "000660", "3", "210000"), stock(ACC1, "035720", "2", "40000")),
+                    change("-590000"));
+
+            assertThat(m.market()).isEqualByComparingTo("30000"); // 000660만
+            assertThat(m.other()).isEqualByComparingTo("-620000");
+        }
+
+        @Test
+        @DisplayName("5. 같은 ticker를 두 계좌에 보유 → (asset_id, ticker)별로 따로 계산")
+        void sameTickerTwoAccounts_separate() {
+            // 합쳐서 계산하면 min(10+5, 2+8) = 10 × 1,000 = 10,000이 되지만, 계좌별로는 min(10,2) + min(5,8) = 7
+            MarketChange m = SnapshotJudge.marketChange(
+                    List.of(stock(ACC1, "005930", "10", "70000"), stock(ACC2, "005930", "5", "70000")),
+                    List.of(stock(ACC1, "005930", "2", "71000"), stock(ACC2, "005930", "8", "71000")),
+                    change("0"));
+
+            assertThat(m.market()).isEqualByComparingTo("7000");
+            assertThat(m.other()).isEqualByComparingTo("-7000");
+        }
+
+        @Test
+        @DisplayName("6. 거래정지(오늘 단가 = 기준일 단가) → 기여 0")
+        void halted_zero() {
+            MarketChange m = SnapshotJudge.marketChange(
+                    List.of(stock(ACC1, "111111", "5", "12000")),
+                    List.of(stock(ACC1, "111111", "5", "12000")),
+                    change("50000"));
+
+            assertThat(m.market()).isEqualByComparingTo("0");
+            assertThat(m.other()).isEqualByComparingTo("50000");
+        }
+
+        @Test
+        @DisplayName("7. 종목 없는 사용자(예수금 · 수기만) → market 0(정상 0), other = day_change")
+        void noStocks_zero() {
+            MarketChange m = SnapshotJudge.marketChange(
+                    List.of(Detail.asset(CASH_ASSET, d("280000"))),
+                    List.of(Detail.asset(CASH_ASSET, d("300000"))),
+                    change("20000"));
+
+            assertThat(m.market()).isNotNull().isEqualByComparingTo("0");
+            assertThat(m.other()).isEqualByComparingTo("20000");
+        }
+
+        @Test
+        @DisplayName("8. 계속 보유 종목의 기준일 quantity 또는 price가 NULL(컬럼 추가 전 행 등) → 둘 다 NULL, 0으로 채우지 않음")
+        void baseQuantityOrPriceMissing_null() {
+            for (Detail base : List.of(stock(ACC1, "005930", null, "70000"), stock(ACC1, "005930", "10", null))) {
+                MarketChange m = SnapshotJudge.marketChange(
+                        List.of(base, stock(ACC1, "000660", "3", "200000")),
+                        List.of(stock(ACC1, "005930", "10", "71200"), stock(ACC1, "000660", "3", "210000")),
+                        change("42000"));
+
+                assertThat(m).isEqualTo(MarketChange.NONE);
+            }
+        }
+
+        @Test
+        @DisplayName("9. 기준(직전 COMPLETE) 없음 · day_change NULL → 둘 다 NULL")
+        void noBaseOrNoDayChange_null() {
+            List<Detail> base = List.of(stock(ACC1, "005930", "10", "70000"));
+            List<Detail> today = List.of(stock(ACC1, "005930", "10", "71200"));
+
+            assertThat(SnapshotJudge.marketChange(base, today, DayChange.NONE)).isEqualTo(MarketChange.NONE);
+            assertThat(SnapshotJudge.marketChange(base, today, new DayChange(BASE, null, null))).isEqualTo(MarketChange.NONE);
+        }
+
+        @Test
+        @DisplayName("10. 종목별 HALF_UP 2자리 후 합산 — 합산 후 반올림과 다른 입력")
+        void roundPerTickerThenSum() {
+            // 종목별: 0.5 × 0.01 = 0.005 → 0.01, 두 종목 0.02 / 합산 후 반올림이면 0.010 → 0.01
+            MarketChange m = SnapshotJudge.marketChange(
+                    List.of(stock(ACC1, "A00001", "0.5", "100.00"), stock(ACC1, "A00002", "0.5", "200.00")),
+                    List.of(stock(ACC1, "A00001", "0.5", "100.01"), stock(ACC1, "A00002", "0.5", "200.01")),
+                    change("0.01"));
+
+            assertThat(m.market()).isEqualByComparingTo("0.02");
+            assertThat(m.other()).isEqualByComparingTo("-0.01");
+        }
+
+        @Test
+        @DisplayName("11. 액면분할(10주 × 100,000 → 20주 × 50,000) → market −500,000, other +500,000 (문서화된 한계)")
+        void stockSplit_documentedLimitation() {
+            // 05 §4.7 한계 ①: 수량 × 가격 기준이라 분할일은 시장가격 영향 · 기타 자산 변화가 크게 나뉘고 합계만 맞다 (자체 보정 없음, 01 §14 #5와 같은 방침)
+            MarketChange m = SnapshotJudge.marketChange(
+                    List.of(stock(ACC1, "005930", "10", "100000")),
+                    List.of(stock(ACC1, "005930", "20", "50000")),
+                    change("0"));
+
+            assertThat(m.market()).isEqualByComparingTo("-500000");
+            assertThat(m.other()).isEqualByComparingTo("500000");
         }
     }
 }

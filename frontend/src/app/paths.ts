@@ -4,7 +4,8 @@ export const paths = {
   records: (date?: string) => (date ? `/records?date=${date}` : '/records'),
   reports: () => '/reports',
   reportDetail: (yearMonth: string) => `/reports/${yearMonth}`,
-  analysis: (stockCode: string, date: string) => `/analysis/${stockCode}/${date}`,
+  analysis: (stockCode: string, date: string) =>
+    `/analysis/${stockCode}/${date}`,
   stockDetail: (stockCode: string) => `/stocks/${stockCode}`,
   goals: () => '/goals',
   goalDetail: (goalId: string) => `/goals/${goalId}`,
