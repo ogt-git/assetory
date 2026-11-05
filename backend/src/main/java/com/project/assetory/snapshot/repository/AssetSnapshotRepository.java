@@ -16,6 +16,15 @@ public interface AssetSnapshotRepository extends JpaRepository<AssetSnapshot, Lo
 
     Optional<AssetSnapshot> findByUserIdAndSnapshotDate(Long userId, LocalDate snapshotDate);
 
+    // 잠정 종가 보정 — 그날 기록 전체(사용자 무관) · 그 기록을 비교 기준으로 쓴 뒤 기록
+    List<AssetSnapshot> findAllBySnapshotDate(LocalDate snapshotDate);
+
+    List<AssetSnapshot> findAllByUserIdAndBaseSnapshotDate(Long userId, LocalDate baseSnapshotDate);
+
+    // 보정 대상 날짜 — 오늘보다 이전의 가장 최근 기록 날짜(사용자 무관). 기록이 없으면 null
+    @Query("SELECT MAX(s.snapshotDate) FROM AssetSnapshot s WHERE s.snapshotDate < :today")
+    LocalDate findLatestSnapshotDateBefore(@Param("today") LocalDate today);
+
     // 비교 기준 — 기준일 이전 직전 COMPLETE (PARTIAL · FAILED는 건너뜀)
     Optional<AssetSnapshot> findFirstByUserIdAndStatusAndSnapshotDateBeforeOrderBySnapshotDateDesc(
             Long userId, SnapshotStatus status, LocalDate snapshotDate);

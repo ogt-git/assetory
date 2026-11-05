@@ -21,4 +21,8 @@ public interface AssetDetailSnapshotRepository extends JpaRepository<AssetDetail
             """)
     List<AssetDetailSnapshot> findAllWithAssetByUserIdAndSnapshotDate(@Param("userId") Long userId,
                                                                       @Param("date") LocalDate date);
+
+    // 잠정 종가 보정 — 그날 기록에 남은 종목코드(사용자 무관 합집합). 종목 시세는 공유 데이터라 종목 단위로 한 번만 확인한다
+    @Query("SELECT DISTINCT d.ticker FROM AssetDetailSnapshot d WHERE d.snapshotDate = :date AND d.ticker IS NOT NULL")
+    List<String> findDistinctTickersBySnapshotDate(@Param("date") LocalDate date);
 }
