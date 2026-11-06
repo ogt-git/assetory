@@ -1,5 +1,10 @@
 package com.project.assetory.snapshot.service;
 
+import com.project.assetory.analysis.domain.Direction;
+import com.project.assetory.analysis.domain.StockEventAnalysis;
+import com.project.assetory.analysis.domain.UserMarketEvent;
+import com.project.assetory.analysis.repository.StockEventAnalysisRepository;
+import com.project.assetory.analysis.repository.UserMarketEventRepository;
 import com.project.assetory.asset.domain.Asset;
 import com.project.assetory.asset.domain.AssetType;
 import com.project.assetory.asset.repository.AssetRepository;
@@ -10,6 +15,7 @@ import com.project.assetory.connect.repository.InstitutionRepository;
 import com.project.assetory.global.crypto.HashUtil;
 import com.project.assetory.market.domain.StockPrice;
 import com.project.assetory.market.repository.StockPriceRepository;
+import com.project.assetory.snapshot.domain.AssetSnapshot;
 import com.project.assetory.snapshot.domain.SnapshotInput;
 import com.project.assetory.snapshot.domain.SnapshotInput.Account;
 import com.project.assetory.snapshot.domain.SnapshotInput.AccountStatus;
@@ -17,6 +23,7 @@ import com.project.assetory.snapshot.domain.SnapshotInput.HoldingPrice;
 import com.project.assetory.snapshot.domain.SnapshotInput.Manual;
 import com.project.assetory.snapshot.domain.SnapshotStatus;
 import com.project.assetory.snapshot.exception.SnapshotNotFoundException;
+import com.project.assetory.snapshot.repository.AssetSnapshotRepository;
 import com.project.assetory.snapshot.service.SnapshotDetailResult.AssetItem;
 import com.project.assetory.snapshot.service.SnapshotDetailResult.HoldingItem;
 import com.project.assetory.support.IntegrationTestSupport;
@@ -263,6 +270,114 @@ class SnapshotDetailQueryIntegrationTest extends IntegrationTestSupport {
         record(DAY3, Account.of(securitiesId, AccountStatus.FAILED), "520000", "2000000");
 
         assertThat(statementsFor(() -> recordService.getDetail(userId, DAY2))).isLessThanOrEqualTo(4);
+        assertThat(statementsFor(() -> recordService.getDetail(userId, DAY3))).isLessThanOrEqualTo(2);
+    }
+
+    // ---------- 그날 사용자 이벤트 (A6, FR-DT-03 결과 표시) ----------
+
+    @Autowired StockEventAnalysisRepository analysisRepository;
+    @Autowired UserMarketEventRepository userMarketEventRepository;
+    @Autowired AssetSnapshotRepository snapshotRepository;
+
+    // 테스트 전용 이벤트 — 공유 분석 + 이 사용자(또는 지정 사용자) 이벤트, 그날 기록이 있으면 has_event를 켠다 (감지 서비스와 같은 결과)
+    private void event(Long owner, LocalDate date, String ticker, String changeRate, String changeAmount, boolean backfilled) {
+        transactionTemplate.executeWithoutResult(status -> {
+            StockEventAnalysis analysis = analysisRepository.findByTickerAndEventDate(ticker, date).orElseGet(() ->
+                    analysisRepository.save(StockEventAnalysis.create(ticker, ticker + " 종목", date, d(changeRate))));
+            userMarketEventRepository.save(UserMarketEvent.create(userRepository.getReferenceById(owner), analysis,
+                    Direction.of(d(changeRate)), d("5"), changeAmount == null ? null : d(changeAmount),
+                    changeAmount == null ? null : d("1.23"), null, backfilled));
+            snapshotRepository.findByUserIdAndSnapshotDate(owner, date).ifPresent(AssetSnapshot::markEvent);
+        });
+    }
+
+    private static String eventTicker() {
+        return "E" + UUID.randomUUID().toString().replace("-", "").substring(0, 5).toUpperCase();
+    }
+
+    @Test
+    @DisplayName("9. 이벤트: 그날 이벤트만, |변동률| 큰 순 — 종목 · 종목명 · 변동률 · 방향 · 금액 · 비중 · 소급 여부")
+    void events_ofThatDayOnly_sorted() {
+        twoCompleteDays();
+        String small = eventTicker();
+        String big = eventTicker();
+        String otherDay = eventTicker();
+        event(userId, DAY2, small, "6.0000", "60000", false);
+        event(userId, DAY2, big, "-8.5000", "-85000", false);
+        event(userId, DAY1, otherDay, "9.0000", "1000", false);
+
+        SnapshotDetailResult result = recordService.getDetail(userId, DAY2);
+
+        assertThat(result.hasEvent()).isTrue();
+        assertThat(result.events()).extracting(SnapshotDetailResult.EventItem::ticker).containsExactly(big, small);
+        SnapshotDetailResult.EventItem first = result.events().get(0);
+        assertThat(first.stockName()).isEqualTo(big + " 종목");
+        assertThat(first.changeRate()).isEqualByComparingTo("-8.5");
+        assertThat(first.direction()).isEqualTo(Direction.DOWN);
+        assertThat(first.changeAmount()).isEqualByComparingTo("-85000");
+        assertThat(first.positionRatio()).isEqualByComparingTo("1.23");
+        assertThat(first.backfilled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("10. 이벤트: 다른 사용자의 이벤트는 같은 종목 · 날짜여도 포함되지 않는다")
+    void events_otherUserExcluded() throws Exception {
+        twoCompleteDays();
+        Long other = userRepository.findByEmailHash(HashUtil.sha256Base64(signupNew())).orElseThrow().getId();
+        String ticker = eventTicker();
+        event(other, DAY2, ticker, "7.0000", "70000", false);
+        event(userId, DAY2, eventTicker(), "6.0000", "60000", false);
+
+        assertThat(recordService.getDetail(userId, DAY2).events()).hasSize(1)
+                .noneMatch(e -> e.ticker().equals(ticker));
+    }
+
+    @Test
+    @DisplayName("11. 이벤트: 금액이 NULL인 소급 이벤트도 내려오고 backfilled=true")
+    void events_backfilledWithNullAmounts() {
+        twoCompleteDays();
+        event(userId, DAY2, eventTicker(), "-6.0000", null, true);
+
+        SnapshotDetailResult.EventItem e = recordService.getDetail(userId, DAY2).events().get(0);
+        assertThat(e.backfilled()).isTrue();
+        assertThat(e.changeAmount()).isNull();
+        assertThat(e.positionRatio()).isNull();
+    }
+
+    @Test
+    @DisplayName("12. 이벤트: 이벤트가 없는 날은 events = []")
+    void events_noneOnQuietDay() {
+        twoCompleteDays();
+
+        SnapshotDetailResult result = recordService.getDetail(userId, DAY1);
+
+        assertThat(result.hasEvent()).isFalse();
+        assertThat(result.events()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("13. 이벤트: 누락일(PARTIAL)은 그날 이벤트가 있어도 events = [] (자산 상세와 같이 내리지 않음)")
+    void events_emptyOnPartialDay() {
+        twoCompleteDays();
+        record(DAY3, Account.of(securitiesId, AccountStatus.FAILED), "520000", "2000000");
+        event(userId, DAY3, eventTicker(), "7.0000", null, true);
+
+        SnapshotDetailResult result = recordService.getDetail(userId, DAY3);
+
+        assertThat(result.missing()).isTrue();
+        assertThat(result.events()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("14. 쿼리 수 — 이벤트가 있는 COMPLETE 날 5회 이하(기존 4 + 1), 이벤트 없는 날 4회 · PARTIAL 2회 그대로")
+    void events_queryCount() {
+        twoCompleteDays();
+        record(DAY3, Account.of(securitiesId, AccountStatus.FAILED), "520000", "2000000");
+        event(userId, DAY2, eventTicker(), "6.0000", "60000", false);
+        event(userId, DAY2, eventTicker(), "-7.0000", "-70000", false);
+
+        assertThat(statementsFor(() -> recordService.getDetail(userId, DAY2))).isLessThanOrEqualTo(5);
+        assertThat(statementsFor(() -> recordService.getDetail(userId, DAY1))).isLessThanOrEqualTo(4);
         assertThat(statementsFor(() -> recordService.getDetail(userId, DAY3))).isLessThanOrEqualTo(2);
     }
 

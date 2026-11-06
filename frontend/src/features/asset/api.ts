@@ -219,7 +219,25 @@ export interface SnapshotDetailAssetItem {
   holdings: SnapshotDetailHoldingItem[]
 }
 
-/** GET /api/snapshots/{date} — SnapshotDetailResponse. missing=true면 증감 · assetClasses는 null, assets는 빈 목록 */
+/** 급등락 방향 — 전 거래일 대비 변동률의 부호 */
+export type EventDirection = 'UP' | 'DOWN'
+
+/** SnapshotDetailEventItem — 그날 내 급등락 이벤트 1개. 원인 · 근거는 담지 않는다 */
+export interface SnapshotDetailEventItem {
+  ticker: string
+  stockName: string
+  /** 전 거래일 대비 변동률 — 퍼센트 값(소수 4자리) */
+  changeRate: number
+  direction: EventDirection
+  /** 내 평가금액 변동. 연동 전 이벤트(소급)는 null */
+  changeAmount: number | null
+  /** 내 총자산 대비 비중(퍼센트). 연동 전 이벤트(소급)는 null */
+  positionRatio: number | null
+  /** 연동 전 이벤트(소급) 여부 */
+  backfilled: boolean
+}
+
+/** GET /api/snapshots/{date} — SnapshotDetailResponse. missing=true면 증감 · assetClasses는 null, assets · events는 빈 목록 */
 export interface SnapshotDetailResponse {
   date: string
   status: SnapshotStatus
@@ -235,6 +253,8 @@ export interface SnapshotDetailResponse {
   otherChangeAmount: number | null
   assetClasses: SnapshotDetailAssetClasses | null
   assets: SnapshotDetailAssetItem[]
+  /** 그날 내 급등락 이벤트 — |변동률| 큰 순. 이벤트가 없는 날 · 누락 날은 빈 목록 */
+  events: SnapshotDetailEventItem[]
 }
 
 /** month 생략 = 백엔드 기본(최근 기록이 있는 달) */

@@ -1,5 +1,6 @@
 package com.project.assetory.snapshot.dto;
 
+import com.project.assetory.analysis.domain.Direction;
 import com.project.assetory.asset.domain.AssetType;
 import com.project.assetory.snapshot.domain.SnapshotStatus;
 import com.project.assetory.snapshot.service.SnapshotDetailResult;
@@ -26,7 +27,8 @@ public record SnapshotDetailResponse(
         @Schema(description = "시장가격 영향. 계산할 수 없으면 null", example = "1000.00") BigDecimal marketChangeAmount,
         @Schema(description = "기타 자산 변화(원인을 뜻하지 않음)", example = "10000.00") BigDecimal otherChangeAmount,
         AssetClasses assetClasses,
-        List<AssetItem> assets
+        List<AssetItem> assets,
+        @Schema(description = "그날 내 급등락 이벤트 — |변동률| 큰 순. 이벤트가 없거나 누락 날이면 빈 목록") List<EventItem> events
 ) {
 
     @Schema(name = "SnapshotDetailAssetClasses", description = "자산군별 금액과 기준일 대비 증감")
@@ -57,6 +59,16 @@ public record SnapshotDetailResponse(
             @Schema(example = "11000.00") BigDecimal amount,
             @Schema(description = "직전 COMPLETE 같은 계좌 · 종목 대비. 새로 산 종목이면 null", example = "1000.00") BigDecimal dayChangeAmount) {}
 
+    @Schema(name = "SnapshotDetailEventItem", description = "그날 내 급등락 이벤트 1개 — 종목의 전 거래일 대비 변동률과 내 숫자. 원인 · 근거는 담지 않는다")
+    public record EventItem(
+            @Schema(example = "005930") String ticker,
+            @Schema(example = "삼성전자") String stockName,
+            @Schema(description = "전 거래일 대비 변동률(퍼센트, 소수 4자리)", example = "7.0000") BigDecimal changeRate,
+            @Schema(description = "UP / DOWN", example = "UP") Direction direction,
+            @Schema(description = "내 평가금액 변동. 연동 전 이벤트(소급)는 null", example = "280000.00") BigDecimal changeAmount,
+            @Schema(description = "내 총자산 대비 비중(퍼센트). 연동 전 이벤트(소급)는 null", example = "6.36") BigDecimal positionRatio,
+            @Schema(description = "연동 전 이벤트(소급) 여부", example = "false") boolean backfilled) {}
+
     public static SnapshotDetailResponse from(SnapshotDetailResult r) {
         AssetClasses classes = r.assetClasses() == null ? null : new AssetClasses(
                 item(r.assetClasses().securities()), item(r.assetClasses().deposit()), item(r.assetClasses().cash()));
@@ -68,7 +80,10 @@ public record SnapshotDetailResponse(
                 .toList();
         return new SnapshotDetailResponse(r.date(), r.status(), r.missing(), r.hasEvent(), r.baseDate(), r.totalAsset(),
                 r.referenceDate(), r.dayChangeAmount(), r.dayChangeRate(), r.marketChangeAmount(), r.otherChangeAmount(),
-                classes, assets);
+                classes, assets, r.events().stream()
+                        .map(e -> new EventItem(e.ticker(), e.stockName(), e.changeRate(), e.direction(),
+                                e.changeAmount(), e.positionRatio(), e.backfilled()))
+                        .toList());
     }
 
     private static AssetClassItem item(SnapshotDetailResult.ClassAmount c) {

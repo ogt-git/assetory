@@ -14,6 +14,7 @@ import com.project.assetory.connect.domain.ConnectedAccountStatus;
 import com.project.assetory.connect.domain.Institution;
 import com.project.assetory.connect.repository.ConnectedAccountRepository;
 import com.project.assetory.connect.repository.InstitutionRepository;
+import com.project.assetory.detection.service.StockChangeDetectionService;
 import com.project.assetory.e2e.FakeKisServer;
 import com.project.assetory.fake.DemoScenario.CurrentHolding;
 import com.project.assetory.fake.DemoScenario.Day;
@@ -49,6 +50,7 @@ import java.util.Map;
  *   <li>회원 · 연동 계좌 · 자산 · 현재 보유 종목 — 실제 엔티티 생성 경로(비밀번호 인코더, 계좌번호 암호화 · 마스킹)</li>
  *   <li>가짜 CODEF 보유 조회 응답 등록 — 화면의 수동 새로고침이 마지막 기록과 같은 구성을 받는다</li>
  *   <li>날짜별 기록 — 실제 SnapshotSaveService로 날짜 오름차순 저장(직전 COMPLETE 사슬 · 시장가격 영향을 운영과 같은 계산으로)</li>
+ *   <li>급등락 이벤트 — demo1 급등일 · 급락일에 실제 StockChangeDetectionService 실행 (A6)</li>
  * </ol>
  * 일일 배치(DailyAssetBatchService)는 쓰지 않는다 — 외부 호출 경로 대신 시나리오 결과를 그대로 넣는다.
  */
@@ -75,6 +77,7 @@ public class DemoDataSeeder implements ApplicationRunner {
     private final HoldingRepository holdingRepository;
     private final StockPriceRepository stockPriceRepository;
     private final SnapshotSaveService snapshotSaveService;
+    private final StockChangeDetectionService stockChangeDetectionService;
     private final TransactionTemplate tx;
 
     public DemoDataSeeder(Clock clock, FakeKisServer kisServer, FakeCodefApiClient codefApiClient,
@@ -82,7 +85,8 @@ public class DemoDataSeeder implements ApplicationRunner {
                           InstitutionRepository institutionRepository, ConnectedAccountRepository connectedAccountRepository,
                           AssetRepository assetRepository, DepositDetailRepository depositDetailRepository,
                           HoldingRepository holdingRepository, StockPriceRepository stockPriceRepository,
-                          SnapshotSaveService snapshotSaveService, TransactionTemplate tx) {
+                          SnapshotSaveService snapshotSaveService, StockChangeDetectionService stockChangeDetectionService,
+                          TransactionTemplate tx) {
         this.clock = clock;
         this.kisServer = kisServer;
         this.codefApiClient = codefApiClient;
@@ -95,6 +99,7 @@ public class DemoDataSeeder implements ApplicationRunner {
         this.holdingRepository = holdingRepository;
         this.stockPriceRepository = stockPriceRepository;
         this.snapshotSaveService = snapshotSaveService;
+        this.stockChangeDetectionService = stockChangeDetectionService;
         this.tx = tx;
     }
 
@@ -108,20 +113,40 @@ public class DemoDataSeeder implements ApplicationRunner {
 
         seedPrices(scenario);
         int snapshots = 0;
+        Long demo1UserId = null;
         for (DemoUser user : DemoUser.values()) {
             UserPlan plan = scenario.plan(user);
             Seeded seeded = seedUser(plan, scenario);
+            if (user == DemoUser.DEMO1) {
+                demo1UserId = seeded.userId();
+            }
             for (Day day : plan.days()) {
                 if (snapshotSaveService.save(seeded.userId(), day.toInput(seeded.accountAssetId(), seeded.manualAssetIds())).isPresent()) {
                     snapshots++;
                 }
             }
         }
+        int events = seedEvents(demo1UserId, scenario);
 
-        log.info("[FakeSeed] 데모 데이터 준비 완료 — 계정 {}개, 기록 {}건, 기간 {} ~ {}, {}ms. 로그인: demo1~demo{}@assetory.test",
-                DemoUser.values().length, snapshots, scenario.calendar().get(0),
+        log.info("[FakeSeed] 데모 데이터 준비 완료 — 계정 {}개, 기록 {}건, 급등락 이벤트 {}건, 기간 {} ~ {}, {}ms. 로그인: demo1~demo{}@assetory.test",
+                DemoUser.values().length, snapshots, events, scenario.calendar().get(0),
                 scenario.calendar().get(scenario.calendar().size() - 1), (System.nanoTime() - started) / 1_000_000,
                 DemoUser.values().length);
+    }
+
+    // ---------- 급등락 이벤트 ----------
+
+    /**
+     * demo1의 급등일 · 급락일에 실제 감지 서비스를 돌린다(A6) — 시드용 가짜 감지 로직 없이 운영과 같은 경로로
+     * 분석(PENDING) · 사용자 이벤트 · 감지 기록 · has_event가 생긴다. 다른 날은 평소 변동(±4% 이내)이라 감지할 것이 없어 돌리지 않는다.
+     * 기록을 모두 넣은 뒤라 그날 COMPLETE 기록 · 시세 · 보유 종목이 있다 (DemoScenarioTest.surgeAndPlunge가 전제를 고정)
+     */
+    private int seedEvents(Long demo1UserId, DemoScenario scenario) {
+        int created = 0;
+        for (LocalDate date : List.of(scenario.surgeDate(), scenario.plungeDate())) {
+            created += stockChangeDetectionService.detect(demo1UserId, date, date.atTime(16, 0));
+        }
+        return created;
     }
 
     // ---------- 시세 ----------

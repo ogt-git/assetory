@@ -1,5 +1,6 @@
 package com.project.assetory.snapshot.service;
 
+import com.project.assetory.analysis.repository.UserMarketEventRepository;
 import com.project.assetory.asset.domain.Asset;
 import com.project.assetory.asset.domain.AssetType;
 import com.project.assetory.market.repository.StockPriceRepository;
@@ -21,6 +22,7 @@ import com.project.assetory.snapshot.repository.AssetSnapshotRepository.RecordRa
 import com.project.assetory.snapshot.service.SnapshotDetailResult.AssetClasses;
 import com.project.assetory.snapshot.service.SnapshotDetailResult.AssetItem;
 import com.project.assetory.snapshot.service.SnapshotDetailResult.ClassAmount;
+import com.project.assetory.snapshot.service.SnapshotDetailResult.EventItem;
 import com.project.assetory.snapshot.service.SnapshotDetailResult.HoldingItem;
 import com.project.assetory.snapshot.service.SnapshotMonthResult.Record;
 import org.springframework.stereotype.Service;
@@ -31,6 +33,7 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -55,16 +58,20 @@ public class SnapshotRecordQueryService {
     private final AssetSnapshotRepository snapshotRepository;
     private final AssetDetailSnapshotRepository detailRepository;
     private final StockPriceRepository stockPriceRepository;
+    private final UserMarketEventRepository userMarketEventRepository;
 
     public SnapshotRecordQueryService(AssetSnapshotRepository snapshotRepository, AssetDetailSnapshotRepository detailRepository,
-                                      StockPriceRepository stockPriceRepository) {
+                                      StockPriceRepository stockPriceRepository,
+                                      UserMarketEventRepository userMarketEventRepository) {
         this.snapshotRepository = snapshotRepository;
         this.detailRepository = detailRepository;
         this.stockPriceRepository = stockPriceRepository;
+        this.userMarketEventRepository = userMarketEventRepository;
     }
 
     /**
-     * 날짜별 상세 — 요청당 쿼리 최대 4회(그날 기록 · detail + 자산 · 기준일 기록 · 종목명). 누락 날은 2회(그날 기록 · 직전 COMPLETE).
+     * 날짜별 상세 — 요청당 쿼리 최대 4회(그날 기록 · detail + 자산 · 기준일 기록 · 종목명), 그날 이벤트가 있으면(has_event) +1(이벤트 + 분석).
+     * 누락 날은 2회(그날 기록 · 직전 COMPLETE)이고 이벤트는 빈 목록.
      *
      * @throws SnapshotNotFoundException 그 날짜에 사용자의 기록이 없을 때(다른 사용자의 날짜 포함)
      */
@@ -79,7 +86,7 @@ public class SnapshotRecordQueryService {
                     .map(s -> new Reference(s.getSnapshotDate(), s.getTotalAsset()))
                     .orElse(Reference.NONE);
             return new SnapshotDetailResult(date, snapshot.getStatus(), true, snapshot.isHasEvent(),
-                    null, previous.totalAsset(), previous.date(), null, null, null, null, null, List.of());
+                    null, previous.totalAsset(), previous.date(), null, null, null, null, null, List.of(), List.of());
         }
 
         List<AssetDetailSnapshot> details = detailRepository.findAllWithAssetByUserIdAndSnapshotDate(userId, date);
@@ -92,7 +99,19 @@ public class SnapshotRecordQueryService {
                 snapshot.getBaseSnapshotDate(), snapshot.getTotalAsset(), date,
                 snapshot.getDayChangeAmount(), snapshot.getDayChangeRate(),
                 snapshot.getMarketChangeAmount(), snapshot.getOtherChangeAmount(),
-                assetClasses(snapshot, base), assetItems(details, stockNames(details, date)));
+                assetClasses(snapshot, base), assetItems(details, stockNames(details, date)),
+                snapshot.isHasEvent() ? events(userId, date) : List.of());
+    }
+
+    // 그날 내 급등락 이벤트 (A6) — has_event인 날만 조회한다(평소 날 쿼리 수 그대로). |변동률| 큰 순, 같으면 종목코드 순
+    private List<EventItem> events(Long userId, LocalDate date) {
+        return userMarketEventRepository.findAllWithAnalysisByUserIdAndEventDate(userId, date).stream()
+                .map(e -> new EventItem(e.getAnalysis().getTicker(), e.getAnalysis().getStockName(),
+                        e.getAnalysis().getChangeRate(), e.getDirection(), e.getChangeAmount(), e.getPositionRatio(),
+                        e.isBackfilled()))
+                .sorted(Comparator.comparing((EventItem e) -> e.changeRate().abs()).reversed()
+                        .thenComparing(EventItem::ticker))
+                .toList();
     }
 
     // 자산군 금액 + 기준일 행 대비 증감 — B4 전일 대비(AssetChangeCalculator.day)의 자산군 차이를 그대로 쓴다(한쪽 NULL이면 NULL)

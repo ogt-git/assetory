@@ -5,6 +5,7 @@ import com.project.assetory.asset.repository.DepositDetailRepository;
 import com.project.assetory.asset.repository.HoldingRepository;
 import com.project.assetory.connect.repository.ConnectedAccountRepository;
 import com.project.assetory.connect.repository.InstitutionRepository;
+import com.project.assetory.detection.service.StockChangeDetectionService;
 import com.project.assetory.e2e.FakeKisServer;
 import com.project.assetory.market.repository.StockPriceRepository;
 import com.project.assetory.snapshot.service.SnapshotSaveService;
@@ -27,9 +28,9 @@ public class FakeSeedConfig {
                                   ConnectedAccountRepository connectedAccountRepository, AssetRepository assetRepository,
                                   DepositDetailRepository depositDetailRepository, HoldingRepository holdingRepository,
                                   StockPriceRepository stockPriceRepository, SnapshotSaveService snapshotSaveService,
-                                  TransactionTemplate tx) {
+                                  StockChangeDetectionService stockChangeDetectionService, TransactionTemplate tx) {
         return new DemoDataSeeder(clock, kisServer, codefApiClient, passwordEncoder, userRepository,
                 institutionRepository, connectedAccountRepository, assetRepository, depositDetailRepository,
-                holdingRepository, stockPriceRepository, snapshotSaveService, tx);
+                holdingRepository, stockPriceRepository, snapshotSaveService, stockChangeDetectionService, tx);
     }
 }
