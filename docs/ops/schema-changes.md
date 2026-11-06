@@ -20,6 +20,12 @@
 | 날짜 | 대상 테이블 | 내용 | 근거 | prod 적용 |
 |---|---|---|---|---|
 | 2026-10-28 | asset_detail_snapshots | `quantity` · `price` 추가 — 종목 행의 평가 수량 · 단가 (시장가격 영향 계산 기준) | 05 §4.7 · §4.8, 01 §14 #1 · #2 | 불필요(첫 배포 전 변경, 초기 스키마에 포함) |
+| 2026-11-05 | detection_rules | 신규 테이블 — 감지 규칙 · 기본 임계치 · 허용 범위 · 발송 상한. 초기 6행은 `data.sql`(id 1~6 고정, 기동마다 덮어씀). 시각 컬럼 없음 | 05 §8.1, FR-DT-01 | 불필요(첫 배포 전 변경, 초기 스키마에 포함) |
+| 2026-11-05 | user_detection_settings | 신규 테이블 — 규칙별 사용자 오버라이드. UNIQUE `uk_user_detection_settings_user_rule (user_id, detection_rule_id)`, `target_scope` · `channel_preference` JSON | 05 §8.2, FR-DT-02 | 불필요(첫 배포 전 변경, 초기 스키마에 포함) |
+| 2026-11-05 | user_settings | 신규 테이블 — 사용자당 1행(PK = user_id). 가입 시 만들지 않고 처음 조회할 때 기본값으로 생성 | 05 §3.2 | 불필요(첫 배포 전 변경, 초기 스키마에 포함) |
+| 2026-11-05 | stock_event_analyses | 신규 테이블 — 종목 · 날짜 단위 공유 분석. UNIQUE `uk_stock_event_analyses_ticker_date`, 인덱스 `idx_stock_event_analyses_status_created (analysis_status, created_at)`. PENDING 단계 컬럼 8개 NULL 허용 | 05 §5.1 · §10, FR-CA-10 | 불필요(첫 배포 전 변경, 초기 스키마에 포함) |
+| 2026-11-05 | user_market_events | 신규 테이블 — 사용자 이벤트. UNIQUE `uk_user_market_events_user_analysis`, 인덱스 `idx_user_market_events_user_date (user_id, event_date)` — 05 §10의 DESC 대신 ASC | 05 §5.3 · §10, FR-CA-12 | 불필요(첫 배포 전 변경, 초기 스키마에 포함) |
+| 2026-11-05 | detection_events | 신규 테이블 — 감지 기록. UNIQUE `uk_detection_events_user_key (user_id, event_key)`, `payload` JSON NOT NULL, `user_market_event_id` NULL 허용 | 05 §8.3 · §10, FR-DT-06 | 불필요(첫 배포 전 변경, 초기 스키마에 포함) |
 
 ### 2026-10-28 — asset_detail_snapshots `quantity` · `price`
 
