@@ -90,6 +90,11 @@ public class AssetSnapshot extends BaseTimeEntity {
         return snapshot;
     }
 
+    // 그날 사용자 이벤트(급등락 감지)가 있다는 표시 — 켜기만 하고 끄지 않는다(이벤트를 지우지 않으므로). apply()는 이 값을 건드리지 않는다
+    public void markEvent() {
+        this.hasEvent = true;
+    }
+
     // 같은 날 다시 저장하면 판정 결과로 덮어쓴다 (재실행 정책은 배치 조립 단계에서 결정)
     public void apply(SnapshotJudgement judgement, LocalDateTime collectedAt, DayChange dayChange, MarketChange marketChange) {
         this.status = judgement.status();
