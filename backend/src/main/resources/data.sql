@@ -48,3 +48,25 @@ INSERT INTO institutions (id, codef_org_code, name, institution_type) VALUES
     (42, '0089', 'K뱅크', 'BANK')
 AS new
 ON DUPLICATE KEY UPDATE name = new.name, institution_type = new.institution_type;
+
+-- detection_rules 초기 데이터 (docs/05 §8.1, FR-DT-01). id 1~6 고정, 기동할 때마다 전 컬럼을 시드 값으로 덮어쓴다
+-- name · severity · unit NULL은 05에 없는 제안값이다(문서 반영 필요). user_configurable = 임계치를 바꿀 수 있는지
+-- 테스트 DetectionRuleSeedTest가 이 값을 고정한다
+-- id 2 TOTAL_ASSET_CHANGE 기본 3.0%: 유지 여부 TODO(01-§14 #6)
+-- id 3 DEPOSIT_MATURITY 기본 30일: 05의 "30 / 7 일" 중 D-7을 어떻게 둘지는 FR-DT-05 때 결정 (TODO)
+
+INSERT INTO detection_rules (id, rule_code, name, trigger_type, default_threshold, unit, min_value, max_value,
+                             individual_limit_per_day, bundle_overflow, severity, user_configurable, is_active) VALUES
+    (1, 'STOCK_PRICE_CHANGE', '종목 급등락', 'STOCK_CHANGE', 5.0, '%', 2, 20, 3, true, 'WARNING', true, true),
+    (2, 'TOTAL_ASSET_CHANGE', '총자산 변동', 'ASSET_CHANGE', 3.0, '%', 1, 15, 1, false, 'WARNING', true, true),
+    (3, 'DEPOSIT_MATURITY', '예금 만기', 'DEPOSIT_MATURITY', 30, '일', 1, 90, NULL, false, 'INFO', true, true),
+    (4, 'DAILY_BRIEFING', '일일 브리핑', 'BRIEFING', NULL, NULL, NULL, NULL, 1, false, 'INFO', false, true),
+    (5, 'GOAL_PROGRESS_WEEKLY', '주간 목표 리포트', 'GOAL_PROGRESS', NULL, NULL, NULL, NULL, NULL, false, 'INFO', false, true),
+    (6, 'MONTHLY_REPORT', '월간 결산', 'MONTHLY_REPORT', NULL, NULL, NULL, NULL, NULL, false, 'INFO', false, true)
+AS new
+ON DUPLICATE KEY UPDATE rule_code = new.rule_code, name = new.name, trigger_type = new.trigger_type,
+                        default_threshold = new.default_threshold, unit = new.unit,
+                        min_value = new.min_value, max_value = new.max_value,
+                        individual_limit_per_day = new.individual_limit_per_day,
+                        bundle_overflow = new.bundle_overflow, severity = new.severity,
+                        user_configurable = new.user_configurable, is_active = new.is_active;
