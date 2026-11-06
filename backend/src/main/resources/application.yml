@@ -104,6 +104,12 @@ assetory:
     confirm:
       enabled: ${ASSETORY_SYNC_CONFIRM_ENABLED:false}
       cron: ${ASSETORY_SYNC_CONFIRM_CRON:0 30 7 * * MON-FRI}
+  # 변화 감지 사용자 설정 (FR-DT-02) — 기본 임계치 · 허용 범위는 detection_rules 테이블(FR-DT-01)
+  detection:
+    # 종목 급등락 알림에서 제외할 수 있는 종목 수 상한
+    max-excluded-tickers: ${ASSETORY_DETECTION_MAX_EXCLUDED_TICKERS:50}
+    # 최초 연동 시 과거 이벤트 소급 범위 — 종목마다 오늘 이하 최신 N거래일 시세 (FR-DT-08, "최근 30일" = 20거래일)
+    backfill-trading-days: ${ASSETORY_DETECTION_BACKFILL_TRADING_DAYS:20}
 
 # JWT — 서명 키는 32바이트 이상. 만료는 FR-AU-02 (AT 30분, RT 14일)
 jwt:

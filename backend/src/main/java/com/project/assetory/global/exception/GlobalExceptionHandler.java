@@ -11,6 +11,8 @@ import com.project.assetory.connect.exception.CodefInstitutionUnavailableExcepti
 import com.project.assetory.connect.exception.CodefSyncException;
 import com.project.assetory.connect.exception.CodefSyncLockConflictException;
 import com.project.assetory.connect.exception.RefreshCooldownException;
+import com.project.assetory.detection.exception.DetectionRuleNotFoundException;
+import com.project.assetory.detection.exception.DetectionSettingInvalidException;
 import com.project.assetory.market.exception.KisApiException;
 import com.project.assetory.snapshot.exception.SnapshotNotFoundException;
 import jakarta.persistence.EntityNotFoundException;
@@ -96,6 +98,23 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<?>> handleSnapshotNotFound(SnapshotNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.error(ErrorCode.SNAPSHOT_NOT_FOUND.getMessage(), ErrorCode.SNAPSHOT_NOT_FOUND.name()));
+    }
+
+    // 감지 규칙 없음 (없는 ruleCode · 비활성 규칙 모두 같은 응답)
+    @ExceptionHandler(DetectionRuleNotFoundException.class)
+    public ResponseEntity<ApiResponse<?>> handleDetectionRuleNotFound(DetectionRuleNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(ErrorCode.DETECTION_RULE_NOT_FOUND.getMessage(), ErrorCode.DETECTION_RULE_NOT_FOUND.name()));
+    }
+
+    // 감지 설정 저장 거부 — ErrorCode 문구만, 허용 범위가 있으면 data로 함께 준다 (입력값은 넣지 않음)
+    @ExceptionHandler(DetectionSettingInvalidException.class)
+    public ResponseEntity<ApiResponse<?>> handleDetectionSettingInvalid(DetectionSettingInvalidException e) {
+        ErrorCode code = e.getErrorCode();
+        ApiResponse<?> body = e.getData() == null
+                ? ApiResponse.error(code.getMessage(), code.name())
+                : ApiResponse.error(code.getMessage(), code.name(), e.getData());
+        return ResponseEntity.status(code.getStatus()).body(body);
     }
 
     //보안 및 권한 핸들러

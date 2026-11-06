@@ -29,6 +29,12 @@ public enum ErrorCode {
     MANUAL_ASSET_NOT_FOUND(404, "수동 자산 정보를 찾을 수 없습니다"),
     SNAPSHOT_NOT_FOUND(404, "해당 날짜의 자산 기록이 없습니다"),
 
+    // 변화 감지 설정 (FR-DT-02) — 입력값은 문구에 넣지 않는다
+    DETECTION_RULE_NOT_FOUND(404, "알림 규칙을 찾을 수 없습니다"),
+    THRESHOLD_NOT_CONFIGURABLE(400, "이 알림은 기준값을 바꿀 수 없습니다"),
+    THRESHOLD_OUT_OF_RANGE(400, "허용 범위를 벗어난 기준값입니다"),
+    TARGET_SCOPE_NOT_SUPPORTED(400, "이 알림은 제외 종목을 설정할 수 없습니다"),
+
     // 권한
     ACCESS_DENIED(403, "접근 권한이 없습니다"),
 
