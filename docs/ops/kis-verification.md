@@ -23,6 +23,7 @@ $env:KIS_APP_KEY = '<앱키>'; $env:KIS_APP_SECRET = '<시크릿>'; cd backend; 
 | V1 · V2 · V3 | 아무 때나 1회 | 변동률 기준, ETF · 거래정지 필드 |
 | V4 | 거래일 16:00 이후 1회 + 다음 날 1회 | 같은 거래일 행의 종가 · 대비율이 같은지 |
 | V5 | 주말 · 공휴일 1회 | 최신 행이 직전 거래일인지 |
+| K1 · S0 (B0) | 아무 때나 1회 | 업종지수 0001 · 1001 응답, 샘플 이벤트 후보(`KIS_SAMPLE_TICKERS`로 종목 변경) — 결과는 `docs/ops/evidence-source-verification.md`에 옮긴다 |
 
 ## 결과
 
