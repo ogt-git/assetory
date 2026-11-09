@@ -26,6 +26,35 @@
 | 2026-11-05 | stock_event_analyses | 신규 테이블 — 종목 · 날짜 단위 공유 분석. UNIQUE `uk_stock_event_analyses_ticker_date`, 인덱스 `idx_stock_event_analyses_status_created (analysis_status, created_at)`. PENDING 단계 컬럼 8개 NULL 허용 | 05 §5.1 · §10, FR-CA-10 | 불필요(첫 배포 전 변경, 초기 스키마에 포함) |
 | 2026-11-05 | user_market_events | 신규 테이블 — 사용자 이벤트. UNIQUE `uk_user_market_events_user_analysis`, 인덱스 `idx_user_market_events_user_date (user_id, event_date)` — 05 §10의 DESC 대신 ASC | 05 §5.3 · §10, FR-CA-12 | 불필요(첫 배포 전 변경, 초기 스키마에 포함) |
 | 2026-11-05 | detection_events | 신규 테이블 — 감지 기록. UNIQUE `uk_detection_events_user_key (user_id, event_key)`, `payload` JSON NOT NULL, `user_market_event_id` NULL 허용 | 05 §8.3 · §10, FR-DT-06 | 불필요(첫 배포 전 변경, 초기 스키마에 포함) |
+| 2026-11-09 | event_sources | 신규 테이블 — 공유 분석의 근거. UNIQUE `uk_event_sources_analysis_external (analysis_id, external_id)`, 인덱스 `idx_event_sources_analysis_published (analysis_id, published_at)`. `published_at` NULL 허용(시각 미제공 공시). `created_at` · `updated_at`은 05 §5.2에 없는 감사 컬럼 | 05 §5.2 · §10, FR-CA-01 · 02 · 04 | 불필요(첫 배포 전 변경, 초기 스키마에 포함) |
+
+### 2026-11-09 — event_sources (신규)
+
+첫 배포 전 변경이라 실행하지 않는다. 초기 DDL을 만들 때 엔티티와 같은지 대조하는 참고용이다(Hibernate 6 · MySQL 8.0 기준).
+
+```sql
+CREATE TABLE event_sources (
+    id             BIGINT        NOT NULL AUTO_INCREMENT,
+    analysis_id    BIGINT        NOT NULL,
+    source_type    ENUM('DISCLOSURE','MACRO','NEWS') NOT NULL,   -- @Enumerated STRING → Hibernate 6 MySQL 네이티브 ENUM(값 알파벳순)
+    title          VARCHAR(500)  NOT NULL,
+    source_name    VARCHAR(100)  NOT NULL,
+    published_at   DATETIME(6)   NULL,
+    url            VARCHAR(1000) NOT NULL,
+    snippet        TEXT          NULL,
+    relevance_rank INT           NULL,
+    external_id    VARCHAR(200)  NOT NULL,
+    created_at     DATETIME(6)   NOT NULL,
+    updated_at     DATETIME(6)   NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_event_sources_analysis_external UNIQUE (analysis_id, external_id),
+    INDEX idx_event_sources_analysis_published (analysis_id, published_at),
+    CONSTRAINT fk_event_sources_analysis FOREIGN KEY (analysis_id) REFERENCES stock_event_analyses (id)
+);
+```
+
+- FK 이름은 Hibernate가 자동으로 정한다(엔티티에 이름 지정 없음) — 초기 DDL을 만들 때 실제 이름으로 맞춘다.
+- 되돌리기: `DROP TABLE event_sources;`
 
 ### 2026-10-28 — asset_detail_snapshots `quantity` · `price`
 
