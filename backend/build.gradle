@@ -54,9 +54,9 @@ dependencies {
 }
 
 tasks.named('test') {
-	// 한투 실호출 검증(@Tag("kis-live"))은 기본 테스트에서 제외 — kisLiveTest로 따로 실행
+	// 실호출 검증(kis-live · evidence-live)은 기본 테스트에서 제외 — 각각 kisLiveTest · evidenceLiveTest로 따로 실행
 	useJUnitPlatform {
-		excludeTags 'kis-live'
+		excludeTags 'kis-live', 'evidence-live'
 	}
 }
 
@@ -68,6 +68,21 @@ tasks.register('kisLiveTest', Test) {
 	classpath = sourceSets.test.runtimeClasspath
 	useJUnitPlatform {
 		includeTags 'kis-live'
+	}
+	testLogging {
+		showStandardStreams = true
+	}
+	outputs.upToDateWhen { false }
+}
+
+// 근거 소스(DART · ECOS · 네이버 API HUB) 실호출 검증 — 키가 없는 소스는 "미실행"으로 기록 (docs/ops/evidence-source-verification.md)
+tasks.register('evidenceLiveTest', Test) {
+	description = '근거 소스(DART · ECOS · 네이버) 실호출 검증'
+	group = 'verification'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform {
+		includeTags 'evidence-live'
 	}
 	testLogging {
 		showStandardStreams = true
