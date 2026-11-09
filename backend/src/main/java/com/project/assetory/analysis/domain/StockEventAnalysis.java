@@ -101,4 +101,21 @@ public class StockEventAnalysis extends BaseTimeEntity {
         analysis.analysisStatus = AnalysisStatus.PENDING;
         return analysis;
     }
+
+    /**
+     * 근거 수집 완료 (B1) — PENDING에서만. 0건이면 NO_EVIDENCE(정상 결과, LLM 미호출 — FR-CA-07),
+     * 1건 이상이면 COLLECTING(수집 완료 · 요약 대기 — 05 §5.1 "수집 중" 의미 변경은 문서 반영 필요).
+     * evidence_count는 수집 시점 저장 건수(기록값) — 뉴스 21일 삭제 뒤에도 다시 세지 않는다.
+     * 근거 상태(evidence_status)는 지수 대비 판정이 필요해 여기서 정하지 않는다(B4 이후)
+     */
+    public void completeCollection(int evidenceCount) {
+        if (analysisStatus != AnalysisStatus.PENDING) {
+            throw new IllegalStateException("PENDING이 아닌 분석은 수집 완료로 바꾸지 않는다: " + analysisStatus);
+        }
+        if (evidenceCount < 0) {
+            throw new IllegalArgumentException("근거 건수는 0 이상이어야 한다: " + evidenceCount);
+        }
+        this.evidenceCount = evidenceCount;
+        this.analysisStatus = evidenceCount == 0 ? AnalysisStatus.NO_EVIDENCE : AnalysisStatus.COLLECTING;
+    }
 }

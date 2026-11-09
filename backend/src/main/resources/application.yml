@@ -110,6 +110,18 @@ assetory:
     max-excluded-tickers: ${ASSETORY_DETECTION_MAX_EXCLUDED_TICKERS:50}
     # 최초 연동 시 과거 이벤트 소급 범위 — 종목마다 오늘 이하 최신 N거래일 시세 (FR-DT-08, "최근 30일" = 20거래일)
     backfill-trading-days: ${ASSETORY_DETECTION_BACKFILL_TRADING_DAYS:20}
+  # 근거 수집 (FR-CA-01 · 02) — 수집기 구현은 B2(DART) · B3(네이버 뉴스) · B4(ECOS)
+  evidence:
+    # 수집기 외부 호출 1회 연결 · 읽기 타임아웃 (NFR-PF-05). 수집기 전체 실행 시간 합은 공유 분석 락 TTL(5분)보다 작아야 한다
+    call-timeout: ${ASSETORY_EVIDENCE_CALL_TIMEOUT:10s}
+    # 수집 범위 — 이벤트일 기준 전 · 후 달력일. 게시 시각으로 자르지 않는다(장 마감 후 구분은 표시 단계, FR-CA-08)
+    # TODO(01-§14 #7): 임시값. B0 실호출(D4 공시 분포 · N6 게시 시각 분포)로 확정한다
+    disclosure:
+      days-before: ${ASSETORY_EVIDENCE_DISCLOSURE_DAYS_BEFORE:1}
+      days-after: ${ASSETORY_EVIDENCE_DISCLOSURE_DAYS_AFTER:1}
+    news:
+      days-before: ${ASSETORY_EVIDENCE_NEWS_DAYS_BEFORE:1}
+      days-after: ${ASSETORY_EVIDENCE_NEWS_DAYS_AFTER:1}
 
 # JWT — 서명 키는 32바이트 이상. 만료는 FR-AU-02 (AT 30분, RT 14일)
 jwt:
