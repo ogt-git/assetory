@@ -26,4 +26,16 @@ class FakeProfileIsolationTest extends IntegrationTestSupport {
         assertThat(context.getBeanNamesForType(DemoDataSeeder.class)).isEmpty();
         assertThat(context.getEnvironment().getActiveProfiles()).doesNotContain("fake");
     }
+
+    @Test
+    @DisplayName("근거 · 지표용 가짜 서버(DART · 네이버 · ECOS)와 FakeEvidenceConfig 빈도 없고, base-url은 실제 기본값 그대로다 (B5)")
+    void noFakeEvidenceBeansInIntegrationContext() {
+        assertThat(context.getBeanNamesForType(FakeEvidenceConfig.class)).isEmpty();
+        assertThat(context.getBeanNamesForType(com.project.assetory.e2e.FakeDartServer.class)).isEmpty();
+        assertThat(context.getBeanNamesForType(com.project.assetory.e2e.FakeNaverNewsServer.class)).isEmpty();
+        assertThat(context.getBeanNamesForType(com.project.assetory.e2e.FakeEcosServer.class)).isEmpty();
+        assertThat(context.getEnvironment().getProperty("assetory.dart.base-url")).isEqualTo("https://opendart.fss.or.kr/api");
+        assertThat(context.getEnvironment().getProperty("assetory.naver.base-url")).isEqualTo("https://naverapihub.apigw.ntruss.com");
+        assertThat(context.getEnvironment().getProperty("assetory.ecos.base-url")).isEqualTo("https://ecos.bok.or.kr/api");
+    }
 }
