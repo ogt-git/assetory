@@ -122,6 +122,12 @@ assetory:
     news:
       days-before: ${ASSETORY_EVIDENCE_NEWS_DAYS_BEFORE:1}
       days-after: ${ASSETORY_EVIDENCE_NEWS_DAYS_AFTER:1}
+    # 뉴스 근거 보관 기한 삭제 — NAVER API HUB 검색 결과는 서버 보관 21일 이내(B0 A안). 운영에서 끄지 않는다
+    # 하루 1회 실행이라 실제 최대 보관 = days + 1일 미만 → 20일. created_at 기준, evidence_count는 다시 세지 않는다
+    news-retention:
+      enabled: ${ASSETORY_EVIDENCE_NEWS_RETENTION_ENABLED:true}
+      days: ${ASSETORY_EVIDENCE_NEWS_RETENTION_DAYS:20}
+      cron: ${ASSETORY_EVIDENCE_NEWS_RETENTION_CRON:0 30 3 * * *}
   # OpenDART — 공시 근거 수집 (FR-CA-01). 키는 환경변수로만. 비어 있어도 기동되고 호출 시 실패한다(분석은 PENDING으로 남는다)
   dart:
     base-url: ${ASSETORY_DART_BASE_URL:https://opendart.fss.or.kr/api}

@@ -28,6 +28,10 @@ assetory:
     batch:
       # 일일 배치(16:00) 끔 — 기록은 데모 시드가 넣는다
       enabled: false
+  evidence:
+    # 뉴스 보관 기한 삭제 스케줄 끔 — 매번 새 DB라 지울 것이 없다
+    news-retention:
+      enabled: false
 
 jwt:
   secret: fake-only-jwt-secret-not-for-real-use-0123456789
