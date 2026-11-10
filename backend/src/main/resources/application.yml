@@ -82,6 +82,14 @@ assetory:
     index-codes:
       kospi: ${ASSETORY_KIS_INDEX_CODE_KOSPI:0001}
       kosdaq: ${ASSETORY_KIS_INDEX_CODE_KOSDAQ:1001}
+  # 한국은행 ECOS Open API — 거시지표(기준금리 · 원/달러, FR-MK-03). 키는 환경변수로만, 키가 URL 경로에 들어간다
+  # 비어 있어도 기동되고 ECOS 지표만 실패한다(지수 · 자산 기록은 영향 없음)
+  ecos:
+    base-url: ${ASSETORY_ECOS_BASE_URL:https://ecos.bok.or.kr/api}
+    api-key: ${ECOS_API_KEY:}
+    # 외부 API 타임아웃 10초 (NFR-PF-05)
+    connect-timeout: 10s
+    read-timeout: 10s
   # 시장 데이터 수집 (FR-MK-01 · 06)
   market:
     # 거래일 판정 기준 종목 — 최신 거래일자가 오늘이면 거래일 (01 §14 #23 (c)안)

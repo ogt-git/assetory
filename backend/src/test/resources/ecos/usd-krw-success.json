@@ -1,0 +1,12 @@
+{
+  "_comment": "테스트 전용 더미 값 — ECOS 개발 명세서 StatisticSearch 출력값 기준, 실응답 미대조. 원/달러(731Y001/0000001) 일별. 응답 순서를 섞어 둠",
+  "StatisticSearch": {
+    "list_total_count": 4,
+    "row": [
+      { "STAT_CODE": "731Y001", "STAT_NAME": "3.1.1.1. 주요국 통화의 대원화환율", "ITEM_CODE1": "0000001", "ITEM_NAME1": "원/미국달러(매매기준율)", "ITEM_CODE2": null, "ITEM_NAME2": null, "ITEM_CODE3": null, "ITEM_NAME3": null, "ITEM_CODE4": null, "ITEM_NAME4": null, "UNIT_NAME": "원", "WGT": null, "TIME": "20261104", "DATA_VALUE": "1400" },
+      { "STAT_CODE": "731Y001", "STAT_NAME": "3.1.1.1. 주요국 통화의 대원화환율", "ITEM_CODE1": "0000001", "ITEM_NAME1": "원/미국달러(매매기준율)", "ITEM_CODE2": null, "ITEM_NAME2": null, "ITEM_CODE3": null, "ITEM_NAME3": null, "ITEM_CODE4": null, "ITEM_NAME4": null, "UNIT_NAME": "원", "WGT": null, "TIME": "20261102", "DATA_VALUE": "1380.5" },
+      { "STAT_CODE": "731Y001", "STAT_NAME": "3.1.1.1. 주요국 통화의 대원화환율", "ITEM_CODE1": "0000001", "ITEM_NAME1": "원/미국달러(매매기준율)", "ITEM_CODE2": null, "ITEM_NAME2": null, "ITEM_CODE3": null, "ITEM_NAME3": null, "ITEM_CODE4": null, "ITEM_NAME4": null, "UNIT_NAME": "원", "WGT": null, "TIME": "20261103", "DATA_VALUE": "1393.3" },
+      { "STAT_CODE": "731Y001", "STAT_NAME": "3.1.1.1. 주요국 통화의 대원화환율", "ITEM_CODE1": "0000001", "ITEM_NAME1": "원/미국달러(매매기준율)", "ITEM_CODE2": null, "ITEM_NAME2": null, "ITEM_CODE3": null, "ITEM_NAME3": null, "ITEM_CODE4": null, "ITEM_NAME4": null, "UNIT_NAME": "원", "WGT": null, "TIME": "20261105", "DATA_VALUE": "1407" }
+    ]
+  }
+}
