@@ -1,0 +1,37 @@
+{
+  "_comment": "테스트 전용 더미 값 — NAVER API HUB 뉴스 검색 문서 필드 기준, 실응답 미대조. 기사 · 언론사 · 링크는 가짜",
+  "lastBuildDate": "Thu, 05 Nov 2026 18:40:00 +0900",
+  "total": 1234,
+  "start": 1,
+  "display": 4,
+  "items": [
+    {
+      "title": "<b>테스트전자</b>, 자사주 매입 &quot;발표&quot;",
+      "originallink": "https://news.example-press.co.kr/article/1001",
+      "link": "https://n.news.naver.com/mnews/article/999/0000001001",
+      "description": "<b>테스트전자</b>가 5일 자기주식 취득을 결정했다고 &amp; 공시했다.",
+      "pubDate": "Thu, 05 Nov 2026 16:20:00 +0900"
+    },
+    {
+      "title": "<b>테스트전자</b> 주가 급등",
+      "originallink": "",
+      "link": "https://n.news.naver.com/mnews/article/999/0000001002",
+      "description": "장 마감 전 거래량이 늘었다.",
+      "pubDate": "Thu, 05 Nov 2026 14:05:00 +0900"
+    },
+    {
+      "title": "반도체 업황 점검",
+      "originallink": "https://other.example-media.com/news/2002",
+      "link": "https://n.news.naver.com/mnews/article/998/0000002002",
+      "description": "<b>테스트전자</b> 등 업종 전반 언급.",
+      "pubDate": "Wed, 04 Nov 2026 09:30:00 +0900"
+    },
+    {
+      "title": "<b>테스트전자</b>, 자사주 매입 &quot;발표&quot;",
+      "originallink": "https://news.example-press.co.kr/article/1001",
+      "link": "https://n.news.naver.com/mnews/article/999/0000001001",
+      "description": "같은 원문 링크가 다시 온 경우(방어용 가정).",
+      "pubDate": "Thu, 05 Nov 2026 16:20:00 +0900"
+    }
+  ]
+}
