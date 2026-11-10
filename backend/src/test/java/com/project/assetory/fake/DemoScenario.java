@@ -45,6 +45,8 @@ public final class DemoScenario {
     public static final String PLUNGE_TICKER = "035720";
     public static final String BUY_TICKER = "005930";
     public static final String SALE_TICKER = "000660";
+    /** B5 — 최근 급등(5평일 전): 공시 + 뉴스가 있는 이벤트. 뉴스 보관 기한(20일) 안이라 "같은 날 보도"를 보여 줄 수 있다 */
+    public static final String RECENT_SURGE_TICKER = "005930";
 
     private static final long SEED = 20261030L;
 
@@ -56,9 +58,11 @@ public final class DemoScenario {
     private static final Map<Integer, String> PRICE_FAIL_OFFSETS = Map.of(300, "069500", 150, "035720");
     private static final int ACCOUNT_FAIL_OFFSET = 20;
     private static final int ALL_FAIL_OFFSET = 90;
+    private static final int RECENT_SURGE_OFFSET = 5;
 
     private static final BigDecimal SURGE_RATE = new BigDecimal("0.07");
     private static final BigDecimal PLUNGE_RATE = new BigDecimal("-0.08");
+    private static final BigDecimal RECENT_SURGE_RATE = new BigDecimal("0.061");
     // 평소 하루 변동 상한 — 급등락(±5%)은 위 이벤트 날에만 생긴다
     private static final double NORMAL_LIMIT = 0.04;
     private static final double NORMAL_SIGMA = 0.012;
@@ -71,7 +75,34 @@ public final class DemoScenario {
             new Stock("069500", "KODEX 200", "35000"),
             new Stock("035720", "카카오", "45000"));
 
+    // ---------- B5 근거 · 지수 데모 (모두 지어낸 더미 값 — 실제 공시 · 기사 · 지수와 무관) ----------
+
+    /** 지수 시작값 · 평소 하루 변동(±0.8% 이내) · 급락일(45평일 전) 동반 하락 */
+    private static final Map<String, String> INDEX_FIRST = Map.of("KOSPI", "2500.00", "KOSDAQ", "800.00");
+    private static final Map<String, BigDecimal> INDEX_PLUNGE_RATE = Map.of("KOSPI", new BigDecimal("-0.03"), "KOSDAQ", new BigDecimal("-0.04"));
+    private static final double INDEX_LIMIT = 0.008;
+    private static final double INDEX_SIGMA = 0.003;
+    /** 급등일(200 · 5평일 전)은 지수를 거의 평탄하게 — 개별 종목 움직임으로 보이게(판정은 11주차) */
+    private static final BigDecimal INDEX_FLAT_RATE = new BigDecimal("0.001");
+    /** 기준금리 — 이벤트일과 겹치지 않는 날(250 · 100평일 전)에만 바뀐다 */
+    private static final int BASE_RATE_CUT_1 = 250;
+    private static final int BASE_RATE_CUT_2 = 100;
+
+    /** 가짜 DART 고유번호(8자리 더미) — 실제 고유번호가 아니다. ETF(069500)는 고유번호 없음(DART 근거 대상 아님) */
+    private static final Map<String, String> CORP_CODES = Map.of("005930", "90000001", "000660", "90000002", "035720", "90000004");
+    private static final java.time.ZoneId KST = java.time.ZoneId.of("Asia/Seoul");
+
     public enum DemoUser { DEMO1, DEMO2, DEMO3, DEMO4 }
+
+    /** 지수 · 거시지표 일별 값 */
+    public record SeriesPoint(LocalDate date, BigDecimal value) {}
+
+    /** 데모 공시 1건 — 가짜 DART에 등록한다. type = pblntf_ty */
+    public record DemoDisclosure(String ticker, String type, String receiptNo, String reportName, LocalDate receiptDate) {}
+
+    /** 데모 기사 1건 — 가짜 네이버에 query(종목명)로 등록한다 */
+    public record DemoArticle(String query, String title, String originallink, String link, String description,
+                              java.time.ZonedDateTime pubDate) {}
 
     public record Stock(String ticker, String name, String firstClose) {}
 
@@ -128,11 +159,19 @@ public final class DemoScenario {
     private final Map<String, List<PricePoint>> prices;
     private final Map<String, Map<LocalDate, BigDecimal>> closes;
     private final Map<DemoUser, UserPlan> plans;
+    private final Map<String, List<SeriesPoint>> indexes;
+    private final Map<String, List<SeriesPoint>> macro;
+    private final List<DemoDisclosure> disclosures;
+    private final List<DemoArticle> articles;
 
     private DemoScenario(LocalDate baseDate) {
         this.calendar = calendar(baseDate);
         this.closes = closes(calendar);
         this.prices = pricePoints(closes);
+        this.indexes = indexes(calendar);
+        this.macro = macro(calendar);
+        this.disclosures = buildDisclosures();
+        this.articles = buildArticles();
         Map<DemoUser, UserPlan> built = new LinkedHashMap<>();
         built.put(DemoUser.DEMO1, demo1());
         built.put(DemoUser.DEMO2, demo2());
@@ -177,6 +216,47 @@ public final class DemoScenario {
 
     public LocalDate saleDate() {
         return dateAt(SALE_OFFSET);
+    }
+
+    public LocalDate recentSurgeDate() {
+        return dateAt(RECENT_SURGE_OFFSET);
+    }
+
+    /** 급등락 감지(A6)를 돌릴 날 — 200 · 45 · 5평일 전. 근거 수집도 이 날들의 분석에 돌린다 */
+    public List<LocalDate> detectionDates() {
+        return List.of(surgeDate(), plungeDate(), recentSurgeDate());
+    }
+
+    /** KOSPI · KOSDAQ 일별 지수(오래된 순, 달력 전체) — 가짜 한투에 등록한다 */
+    public Map<String, List<SeriesPoint>> indexes() {
+        return indexes;
+    }
+
+    /** BASE_RATE · USD_KRW 일별 값(오래된 순, 달력 전체) — 가짜 ECOS에 등록한다 */
+    public Map<String, List<SeriesPoint>> macro() {
+        return macro;
+    }
+
+    public List<DemoDisclosure> disclosures() {
+        return disclosures;
+    }
+
+    public List<DemoArticle> articles() {
+        return articles;
+    }
+
+    /** 가짜 DART 고유번호 — 없는 종목(ETF)은 null */
+    public String corpCode(String ticker) {
+        return CORP_CODES.get(ticker);
+    }
+
+    public Map<String, String> corpCodes() {
+        return CORP_CODES;
+    }
+
+    /** 5평일 전 이벤트에 저장될 뉴스 건수 — 기사 5건 중 제목에 종목명 없는 1건 · 같은 원문 URL 1건이 빠진다 */
+    public int expectedNewsCount() {
+        return 3;
     }
 
     // ---------- 계정 ----------
@@ -360,7 +440,102 @@ public final class DemoScenario {
         if (offset == PLUNGE_OFFSET && ticker.equals(PLUNGE_TICKER)) {
             return PLUNGE_RATE;
         }
+        if (offset == RECENT_SURGE_OFFSET && ticker.equals(RECENT_SURGE_TICKER)) {
+            return RECENT_SURGE_RATE;
+        }
         return BigDecimal.valueOf(normal).setScale(6, RoundingMode.HALF_UP);
+    }
+
+    // ---------- B5 근거 · 지수 ----------
+
+    private static Map<String, List<SeriesPoint>> indexes(List<LocalDate> calendar) {
+        int last = calendar.size() - 1;
+        Map<String, List<SeriesPoint>> result = new LinkedHashMap<>();
+        for (String code : List.of("KOSPI", "KOSDAQ")) {
+            Random random = new Random(SEED ^ code.hashCode());
+            List<SeriesPoint> series = new ArrayList<>();
+            BigDecimal value = new BigDecimal(INDEX_FIRST.get(code));
+            for (int i = 0; i <= last; i++) {
+                int offset = last - i;
+                // 랜덤 호출 수를 날짜마다 같게 — 이벤트 날도 한 번 뽑고 버린다
+                double normal = Math.max(-INDEX_LIMIT, Math.min(INDEX_LIMIT, random.nextGaussian() * INDEX_SIGMA));
+                if (i > 0) {
+                    BigDecimal rate = offset == PLUNGE_OFFSET ? INDEX_PLUNGE_RATE.get(code)
+                            : offset == SURGE_OFFSET || offset == RECENT_SURGE_OFFSET ? INDEX_FLAT_RATE
+                            : BigDecimal.valueOf(normal).setScale(6, RoundingMode.HALF_UP);
+                    value = value.multiply(BigDecimal.ONE.add(rate)).setScale(2, RoundingMode.HALF_UP);
+                }
+                series.add(new SeriesPoint(calendar.get(i), value));
+            }
+            result.put(code, List.copyOf(series));
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    private static Map<String, List<SeriesPoint>> macro(List<LocalDate> calendar) {
+        int last = calendar.size() - 1;
+        List<SeriesPoint> baseRate = new ArrayList<>();
+        List<SeriesPoint> usdKrw = new ArrayList<>();
+        Random random = new Random(SEED ^ "USD_KRW".hashCode());
+        BigDecimal fx = new BigDecimal("1350.00");
+        for (int i = 0; i <= last; i++) {
+            int offset = last - i;
+            BigDecimal rate = offset > BASE_RATE_CUT_1 ? new BigDecimal("3.00")
+                    : offset > BASE_RATE_CUT_2 ? new BigDecimal("2.75") : new BigDecimal("2.50");
+            baseRate.add(new SeriesPoint(calendar.get(i), rate));
+            double move = Math.max(-0.01, Math.min(0.01, random.nextGaussian() * 0.003));
+            if (i > 0) {
+                fx = fx.multiply(BigDecimal.ONE.add(BigDecimal.valueOf(move).setScale(6, RoundingMode.HALF_UP)))
+                        .setScale(2, RoundingMode.HALF_UP);
+            }
+            usdKrw.add(new SeriesPoint(calendar.get(i), fx));
+        }
+        Map<String, List<SeriesPoint>> result = new LinkedHashMap<>();
+        result.put("BASE_RATE", List.copyOf(baseRate));
+        result.put("USD_KRW", List.copyOf(usdKrw));
+        return Collections.unmodifiableMap(result);
+    }
+
+    // 5평일 전(005930) · 45평일 전(035720)에만 공시. 200평일 전은 근거 0건(NO_EVIDENCE 시연). 보고서명은 지어낸 문구
+    private List<DemoDisclosure> buildDisclosures() {
+        LocalDate recent = recentSurgeDate();
+        LocalDate plunge = plungeDate();
+        return List.of(
+                disclosure(RECENT_SURGE_TICKER, "B", recent, 1, "[데모] 주요사항보고서(자기주식취득결정)"),
+                disclosure(RECENT_SURGE_TICKER, "I", recent, 2, "[데모] 기업설명회(IR) 개최"),
+                disclosure(PLUNGE_TICKER, "B", plunge, 1, "[데모] 주요사항보고서(유상증자결정)"),
+                disclosure(PLUNGE_TICKER, "I", plunge, 2, "[데모] 단일판매ㆍ공급계약 해지"));
+    }
+
+    private static DemoDisclosure disclosure(String ticker, String type, LocalDate date, int seq, String name) {
+        String receiptNo = date.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE) + "8" + String.format("%05d", seq);
+        return new DemoDisclosure(ticker, type, receiptNo, name, date);
+    }
+
+    /**
+     * 5평일 전 이벤트 기사 5건(종목명으로 검색) — 장중 1 · 장 마감 후 1(FR-CA-08 구분) · 제목에 종목명 없는 1(제목 필터)
+     * · 같은 원문 URL 1(중복 제거) · 전날 1. 45 · 200평일 전은 기사 없음(뉴스 보관 기한이 지난 이벤트). 제목 · 링크는 지어낸 더미 값
+     */
+    private List<DemoArticle> buildArticles() {
+        LocalDate d = recentSurgeDate();
+        String name = stockName(RECENT_SURGE_TICKER);
+        String press = "https://news.demo.example/a/";
+        String portal = "https://n.news.naver.com/demo/";
+        return List.of(
+                new DemoArticle(name, "<b>" + name + "</b> 장중 강세… 데모 기사", press + "1001", portal + "1001",
+                        "데모 요약: <b>" + name + "</b> 장중 거래량 증가", at(d, 10, 30)),
+                new DemoArticle(name, "<b>" + name + "</b>, 장 마감 후 &quot;데모&quot; 보도", press + "1002", portal + "1002",
+                        "데모 요약: 장 마감 뒤 나온 기사", at(d, 16, 10)),
+                new DemoArticle(name, "반도체 업종 데모 동향", press + "1003", portal + "1003",
+                        "데모 요약: <b>" + name + "</b> 등 업종 전반", at(d, 11, 0)),
+                new DemoArticle(name, "<b>" + name + "</b> 장중 강세… 데모 기사(재전송)", press + "1001", portal + "1004",
+                        "같은 원문을 다시 보낸 경우", at(d, 10, 35)),
+                new DemoArticle(name, "<b>" + name + "</b> 전일 데모 기사", press + "1005", portal + "1005",
+                        "데모 요약: 전날 기사", at(d.minusDays(1), 14, 0)));
+    }
+
+    private static java.time.ZonedDateTime at(LocalDate date, int hour, int minute) {
+        return date.atTime(hour, minute).atZone(KST);
     }
 
     private static Map<String, List<PricePoint>> pricePoints(Map<String, Map<LocalDate, BigDecimal>> closes) {
@@ -383,7 +558,8 @@ public final class DemoScenario {
     // 이벤트 날짜끼리 겹치지 않게 — 겹치면 시나리오가 의도와 달라진다
     static {
         Set<Integer> offsets = new HashSet<>(PRICE_FAIL_OFFSETS.keySet());
-        for (int offset : List.of(SURGE_OFFSET, PLUNGE_OFFSET, BUY_OFFSET, SALE_OFFSET, ACCOUNT_FAIL_OFFSET, ALL_FAIL_OFFSET)) {
+        for (int offset : List.of(SURGE_OFFSET, PLUNGE_OFFSET, BUY_OFFSET, SALE_OFFSET, ACCOUNT_FAIL_OFFSET, ALL_FAIL_OFFSET,
+                RECENT_SURGE_OFFSET, BASE_RATE_CUT_1, BASE_RATE_CUT_2)) {
             if (!offsets.add(offset)) {
                 throw new IllegalStateException("데모 이벤트 날짜가 겹친다: " + offset);
             }
