@@ -85,6 +85,7 @@ class DailyAssetBatchIntegrationTest extends IntegrationTestSupport {
     @MockitoSpyBean StockSyncService stockSyncService;
     @MockitoSpyBean SnapshotSaveService snapshotSaveService;
     @MockitoSpyBean StockChangeDetectionService stockChangeDetectionService;
+    @MockitoSpyBean com.project.assetory.market.service.MacroIndicatorCollectService macroIndicatorCollectService;
     @Autowired JdbcTemplate jdbcTemplate;
 
     @Autowired DailyAssetBatchService batchService;
@@ -740,5 +741,57 @@ class DailyAssetBatchIntegrationTest extends IntegrationTestSupport {
         assertThat(summary.userErrors()).isZero();
         assertThat(summary.stockEvents()).isEqualTo(1);
         assertThat(summary.snapshots()).containsEntry(SnapshotStatus.COMPLETE, 2);
+    }
+
+    // ---------- 지수 · 지표 단계 (B4, 05 §11.2) ----------
+
+    @Test
+    @DisplayName("지수: 정상일 → 시세 다음 단계에서 KOSPI 저장(가장 오래된 날짜 제외 · 변동률 직접 계산), 스냅샷 COMPLETE")
+    void index_savedOnTradingDay() throws Exception {
+        LinkedUser user = linkedUser(ConnectedAccountStatus.ACTIVE);
+        codefResponses.put(user.connectedId(), codefSuccess("100000", item("005930", "10", "700000")));
+        doReturn(List.of(new com.project.assetory.market.kis.KisIndexDaily(DAY, new BigDecimal("2601.00"), null),
+                new com.project.assetory.market.kis.KisIndexDaily(PREV, new BigDecimal("2550.00"), null)))
+                .when(kis).getIndexDaily(eq("0001"), any(), any());
+
+        batchService.run();
+
+        verify(kis).getIndexDaily("0001", DAY.minusDays(45), DAY);
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "select value, change_rate, source from macro_indicators where indicator_code = 'KOSPI' and base_date = ?", DAY);
+        assertThat((BigDecimal) row.get("value")).isEqualByComparingTo("2601.00");
+        assertThat((BigDecimal) row.get("change_rate")).isEqualByComparingTo("2.0000"); // 51 ÷ 2550
+        assertThat(row).containsEntry("source", "KIS");
+        assertThat(jdbcTemplate.queryForObject("select count(*) from macro_indicators where indicator_code = 'KOSPI' and base_date = ?",
+                Integer.class, PREV)).isZero();
+        assertThat(snapshot(user.userId()).getStatus()).isEqualTo(SnapshotStatus.COMPLETE);
+    }
+
+    @Test
+    @DisplayName("지수: 단계 전체가 예외를 내도 그날 스냅샷은 COMPLETE로 커밋된다 (자산 기록 판정과 무관, 5-C)")
+    void index_stepFailure_snapshotUnaffected() throws Exception {
+        LinkedUser user = linkedUser(ConnectedAccountStatus.ACTIVE);
+        codefResponses.put(user.connectedId(), codefSuccess("100000", item("005930", "10", "700000")));
+        doThrow(new IllegalStateException("테스트 전용 — 지수 단계 실패")).when(macroIndicatorCollectService).collect(any());
+
+        BatchSummary summary = batchService.run();
+
+        assertThat(snapshot(user.userId()).getStatus()).isEqualTo(SnapshotStatus.COMPLETE);
+        assertThat(snapshot(user.userId()).getSecuritiesAmount()).isEqualByComparingTo("712000");
+        assertThat(summary.snapshots()).containsEntry(SnapshotStatus.COMPLETE, 1);
+        assertThat(summary.userErrors()).isZero();
+        verify(macroIndicatorCollectService).collect(DAY);
+    }
+
+    @Test
+    @DisplayName("지수: 휴장일 → 배치가 앞에서 끝나 지수 호출 없음")
+    void index_holiday_noCall() throws Exception {
+        linkedUser(ConnectedAccountStatus.ACTIVE);
+        doReturn(rows(new BigDecimal("70000"), new BigDecimal("69000")).subList(1, 2)).when(kis).getDailyPrices("005930");
+
+        batchService.run();
+
+        verify(kis, never()).getIndexDaily(anyString(), any(), any());
+        verify(macroIndicatorCollectService, never()).collect(any());
     }
 }

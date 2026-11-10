@@ -141,6 +141,9 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
         KIS.prices("111111", new Day(PREV, new BigDecimal("12000")));
         KIS.stockInfo("069500", "EF", false);
         KIS.stockInfo("111111", "ST", true);
+        // 업종지수(B4) — KOSPI 0001 · KOSDAQ 1001, 최신순
+        KIS.indexes("0001", new Day(DAY, new BigDecimal("2601.00")), new Day(PREV, new BigDecimal("2550.00")));
+        KIS.indexes("1001", new Day(DAY, new BigDecimal("808.00")), new Day(PREV, new BigDecimal("800.00")));
 
         codef.clear();
         when(codefApiClient.encryptRSA(anyString())).thenReturn("rsa-test-only");
@@ -183,6 +186,7 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
         assertSecurityTypes();
         assertDetails();
         assertSyncJobs();
+        assertIndexes();
         assertThat(KIS.tokenRequests()).isEqualTo(1);
         assertTokenTtl();
 
@@ -228,6 +232,7 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
         assertThat(summary.tradingDay()).isEqualTo(TradingDayStatus.HOLIDAY);
         assertThat(KIS.requests("daily-price")).isEqualTo(1);
         assertThat(KIS.requests("stock-info")).isZero();
+        assertThat(KIS.requests("index-daily")).isZero();
         verify(codefApiClient, never()).requestProduct(eq(STOCK_URL),
                 org.mockito.ArgumentMatchers.argThat(p -> seeded.u1().connectedId().equals(p.get("connectedId"))));
         assertThat(snapshotCount(NEXT)).isZero();
@@ -408,6 +413,7 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
                 .contains("external_api_calls_total{api=\"daily-price\"")
                 .contains("external_api_calls_total{api=\"token\"")
                 .contains("external_api_latency_seconds_count{api=\"stock-info\"")
+                .contains("external_api_calls_total{api=\"index-daily\"")
                 .contains("market_price_collect_total{")
                 .contains("result=\"halted\"")
                 .contains("snapshot_status_total{")
@@ -422,7 +428,15 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
                 .isIn(HttpStatus.UNAUTHORIZED, HttpStatus.NOT_FOUND);
     }
 
+    // 업종지수(B4): 가장 오래된 날짜(PREV)는 저장하지 않고, DAY는 직전 행 대비 직접 계산 — 2601 ÷ 2550 = +2%, 808 ÷ 800 = +1%
+    private void assertIndexes() {
+        assertThat(jdbc.queryForList("select concat(indicator_code, ':', base_date, ':', value, ':', change_rate, ':', source) "
+                + "from macro_indicators order by indicator_code", String.class))
+                .containsExactly("KOSDAQ:" + DAY + ":808.0000:1.0000:KIS", "KOSPI:" + DAY + ":2601.0000:2.0000:KIS");
+    }
+
     private void assertNoCollection() throws Exception {
+        assertThat(KIS.requests("index-daily")).isZero();
         assertThat(KIS.requests("stock-info")).isZero();
         verify(codefApiClient, never()).requestProduct(eq(STOCK_URL),
                 org.mockito.ArgumentMatchers.argThat(p -> seeded.u1().connectedId().equals(p.get("connectedId"))));
@@ -511,6 +525,7 @@ class DailyAssetE2eTest extends IntegrationTestSupport {
             entityManager.createQuery("delete from AssetDetailSnapshot").executeUpdate();
             entityManager.createQuery("delete from AssetSnapshot").executeUpdate();
             entityManager.createQuery("delete from StockPrice").executeUpdate();
+            entityManager.createQuery("delete from MacroIndicator").executeUpdate();
             entityManager.createQuery("delete from Holding").executeUpdate();
             entityManager.createQuery("update ConnectedAccount c set c.status = :s")
                     .setParameter("s", ConnectedAccountStatus.DISCONNECTED).executeUpdate();

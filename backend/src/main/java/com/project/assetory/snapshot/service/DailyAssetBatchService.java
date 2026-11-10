@@ -19,6 +19,7 @@ import com.project.assetory.market.config.MarketProperties;
 import com.project.assetory.market.domain.StockPrice;
 import com.project.assetory.market.domain.TradingDayStatus;
 import com.project.assetory.market.repository.StockPriceRepository;
+import com.project.assetory.market.service.MacroIndicatorCollectService;
 import com.project.assetory.market.service.StockPriceCollectResult;
 import com.project.assetory.market.service.StockPriceCollectResult.TickerResult;
 import com.project.assetory.market.service.StockPriceCollectResult.TickerStatus;
@@ -78,6 +79,7 @@ public class DailyAssetBatchService {
     private final Clock clock;
     private final long lockRetryWaitMs;
     private final StockChangeDetectionService stockChangeDetectionService;
+    private final MacroIndicatorCollectService macroIndicatorCollectService;
 
     public DailyAssetBatchService(TradingDayService tradingDayService, StockSyncService stockSyncService,
                                   StockPriceCollectService stockPriceCollectService, SnapshotSaveService snapshotSaveService,
@@ -85,7 +87,8 @@ public class DailyAssetBatchService {
                                   HoldingRepository holdingRepository, StockPriceRepository stockPriceRepository,
                                   MarketProperties marketProperties, MeterRegistry meterRegistry, Clock clock,
                                   @Value("${assetory.sync.batch.lock-retry-wait-ms:10000}") long lockRetryWaitMs,
-                                  StockChangeDetectionService stockChangeDetectionService) {
+                                  StockChangeDetectionService stockChangeDetectionService,
+                                  MacroIndicatorCollectService macroIndicatorCollectService) {
         this.tradingDayService = tradingDayService;
         this.stockSyncService = stockSyncService;
         this.stockPriceCollectService = stockPriceCollectService;
@@ -99,6 +102,7 @@ public class DailyAssetBatchService {
         this.clock = clock;
         this.lockRetryWaitMs = lockRetryWaitMs;
         this.stockChangeDetectionService = stockChangeDetectionService;
+        this.macroIndicatorCollectService = macroIndicatorCollectService;
     }
 
     /**
@@ -177,6 +181,15 @@ public class DailyAssetBatchService {
         // 3. 보유 종목 시세 — CODEF 수집 뒤라 이번에 새로 생긴 보유 종목도 포함된다
         StockPriceCollectResult prices = stockPriceCollectService.collect(snapshotDate);
         LocalDateTime collectedAt = LocalDateTime.now(clock);
+
+        // 3b. 지수 · 지표 (B4, FR-MK-02 · 05 §11.2) — 시세 다음, 평가 · 판정 전.
+        // 사용자 자산이 아니라 자산 기록 판정(COMPLETE · PARTIAL · FAILED)과 무관하다(5-C). 서비스는 트랜잭션 밖에서 돌고
+        // 지표마다 따로 커밋하며, 여기서 어떤 예외가 나도 다음 단계로 넘어간다(로그 · external.api 메트릭만)
+        try {
+            macroIndicatorCollectService.collect(snapshotDate);
+        } catch (RuntimeException e) {
+            log.error("[DailyBatch] 지수 · 지표 단계 실패 — 자산 기록은 계속 date={} error={}", snapshotDate, e.getClass().getSimpleName());
+        }
 
         // 4. 사용자별 스냅샷 — 사용자 단위 실패 격리 (예외를 FAILED 스냅샷으로 바꾸지 않는다)
         Map<Long, List<Account>> accountsByUser = new HashMap<>();
