@@ -8,13 +8,14 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 
 // 05 §12 external.api.* — 태그는 provider · api · result만 (종목코드 · URL 금지, 카디널리티)
-// api: token / daily-price / stock-info (05 §12 반영 필요)
+// api: token / daily-price / stock-info / index-daily (05 §12 반영 필요)
 @Component
 public class KisMetrics {
 
     static final String API_TOKEN = "token";
     static final String API_DAILY_PRICE = "daily-price";
     static final String API_STOCK_INFO = "stock-info";
+    static final String API_INDEX_DAILY = "index-daily";
 
     private final MeterRegistry registry;
 

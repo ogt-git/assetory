@@ -40,6 +40,13 @@ public class KisApiClient {
             + "?PRDT_TYPE_CD={productType}&PDNO={ticker}";
     private static final String STOCK_INFO_TR_ID = "CTPF1002R";
 
+    // 업종기간별시세(일 · 주 · 월 · 년) — 공식 예제(inquire_daily_indexchartprice) 기준, 실응답 미대조(B0 K1)
+    private static final String INDEX_DAILY_URI = "/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice"
+            + "?FID_COND_MRKT_DIV_CODE={market}&FID_INPUT_ISCD={indexCode}&FID_INPUT_DATE_1={from}&FID_INPUT_DATE_2={to}"
+            + "&FID_PERIOD_DIV_CODE={period}";
+    private static final String INDEX_DAILY_TR_ID = "FHKUP03500100";
+    private static final String MARKET_INDEX = "U";
+
     // KRX 고정 — NX(넥스트레이드) · UN(통합)은 장 마감 뒤 거래가 섞일 수 있다
     private static final String MARKET_KRX = "J";
     // inquire-daily-price: 0 = 수정주가 미반영(실제 체결가). 평가금액은 실제 종가 × 수량이므로 원주가로 받는다
@@ -90,6 +97,30 @@ public class KisApiClient {
                     optionalDecimal(row, "acml_prtt_rate")));
         }
         return prices;
+    }
+
+    /**
+     * 업종지수 일별 값 (FR-MK-02) — 시작 ~ 종료일, 응답 순서 그대로(정렬 · 계산은 IndicatorSeries).
+     * 빈 채움 행은 건너뛰고(시세 조회와 같은 규칙), 값이 있는데 해석할 수 없으면 INVALID_RESPONSE (0으로 채우지 않음).
+     * 1회 반환 건수 상한은 미확인(B0 K1) — 공식 예제는 연속 조회(tr_cont)를 지원하지만 여기서는 1회만 부른다
+     */
+    public List<KisIndexDaily> getIndexDaily(String indexCode, LocalDate from, LocalDate to) {
+        JsonNode body = get(KisMetrics.API_INDEX_DAILY, INDEX_DAILY_URI, INDEX_DAILY_TR_ID, Map.of(
+                "market", MARKET_INDEX, "indexCode", indexCode, "from", from.format(BASIC_DATE), "to", to.format(BASIC_DATE),
+                "period", "D"));
+        JsonNode output = body.path("output2");
+        if (!output.isArray()) {
+            throw invalid("output2 형식");
+        }
+        List<KisIndexDaily> rows = new ArrayList<>();
+        for (JsonNode row : output) {
+            if (isBlankRow(row)) continue;
+            rows.add(new KisIndexDaily(
+                    requiredDate(row, "stck_bsop_date"),
+                    requiredDecimal(row, "bstp_nmix_prpr"),
+                    optionalDecimal(row, "bstp_nmix_prdy_ctrt")));
+        }
+        return rows;
     }
 
     // 종목 기본정보 — Step 1에서는 ETF · 거래정지 판별 필드 검증용 (security_type 채우기는 Step 2 결정 후)

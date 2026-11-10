@@ -1,0 +1,15 @@
+{
+  "_comment": "테스트 전용 더미 값 — 공식 예제(inquire_daily_indexchartprice, FHKUP03500100) 필드명 기준, 실응답 미대조. 최신 거래일이 먼저 오는 경우 + 빈 채움 행",
+  "rt_cd": "0",
+  "msg_cd": "MCA00000",
+  "msg1": "정상처리 되었습니다.",
+  "output1": { "hts_kor_isnm": "종합", "bstp_nmix_prpr": "2601.51", "bstp_nmix_prdy_ctrt": "2.00" },
+  "output2": [
+    { "stck_bsop_date": "20261105", "bstp_nmix_prpr": "2601.51", "bstp_nmix_prdy_ctrt": "2.00", "bstp_nmix_oprc": "2560.00", "acml_vol": "500000", "mod_yn": "N" },
+    { "stck_bsop_date": "20261104", "bstp_nmix_prpr": "2550.50", "bstp_nmix_prdy_ctrt": "2.02", "bstp_nmix_oprc": "2505.00", "acml_vol": "480000", "mod_yn": "N" },
+    { "stck_bsop_date": "20261103", "bstp_nmix_prpr": "2500.00", "bstp_nmix_prdy_ctrt": "-0.99", "bstp_nmix_oprc": "2520.00", "acml_vol": "470000", "mod_yn": "N" },
+    { "stck_bsop_date": "20261102", "bstp_nmix_prpr": "2525.00", "bstp_nmix_prdy_ctrt": "1.00", "bstp_nmix_oprc": "2502.00", "acml_vol": "460000", "mod_yn": "N" },
+    { "stck_bsop_date": "20261030", "bstp_nmix_prpr": "2500.00", "bstp_nmix_prdy_ctrt": "0.50", "bstp_nmix_oprc": "2490.00", "acml_vol": "450000", "mod_yn": "N" },
+    { "stck_bsop_date": "", "bstp_nmix_prpr": "", "bstp_nmix_prdy_ctrt": "", "bstp_nmix_oprc": "", "acml_vol": "", "mod_yn": "" }
+  ]
+}

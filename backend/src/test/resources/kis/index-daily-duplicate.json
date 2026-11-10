@@ -1,0 +1,11 @@
+{
+  "_comment": "테스트 전용 — 같은 거래일이 두 번 오는 경우(방어용 가정), 실응답 미대조",
+  "rt_cd": "0",
+  "msg_cd": "MCA00000",
+  "msg1": "정상처리 되었습니다.",
+  "output2": [
+    { "stck_bsop_date": "20261105", "bstp_nmix_prpr": "2601.51" },
+    { "stck_bsop_date": "20261105", "bstp_nmix_prpr": "2600.00" },
+    { "stck_bsop_date": "20261104", "bstp_nmix_prpr": "2550.50" }
+  ]
+}
