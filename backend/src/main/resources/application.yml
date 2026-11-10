@@ -122,6 +122,18 @@ assetory:
     news:
       days-before: ${ASSETORY_EVIDENCE_NEWS_DAYS_BEFORE:1}
       days-after: ${ASSETORY_EVIDENCE_NEWS_DAYS_AFTER:1}
+  # OpenDART — 공시 근거 수집 (FR-CA-01). 키는 환경변수로만. 비어 있어도 기동되고 호출 시 실패한다(분석은 PENDING으로 남는다)
+  dart:
+    base-url: ${ASSETORY_DART_BASE_URL:https://opendart.fss.or.kr/api}
+    api-key: ${DART_API_KEY:}
+    # 공시 유형(pblntf_ty) — B 주요사항 · I 거래소공시 · D 지분공시. 목록 응답에 유형이 없어 유형마다 1회 호출
+    # TODO(01-§14 #11): 임시값. B0 실호출 D4(공시 유형별 분포)로 확정한다
+    disclosure-types: ${ASSETORY_DART_DISCLOSURE_TYPES:B,I,D}
+    # 유형 1개당 최대 페이지(100건/페이지). 넘으면 수집기 실패 — 수집 시간이 공유 분석 락 TTL(5분)을 넘지 않게
+    # 최악: 유형 3 × 2페이지 × (연결 10초 + 읽기 10초) + 고유번호(연결 10초 + 읽기 30초) = 160초 < 300초
+    max-pages: ${ASSETORY_DART_MAX_PAGES:2}
+    # 고유번호 ZIP(수 MB) 읽기 타임아웃. 공시 목록은 assetory.evidence.call-timeout(10초)
+    corp-code-timeout: ${ASSETORY_DART_CORP_CODE_TIMEOUT:30s}
 
 # JWT — 서명 키는 32바이트 이상. 만료는 FR-AU-02 (AT 30분, RT 14일)
 jwt:

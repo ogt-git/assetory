@@ -1,0 +1,26 @@
+{
+  "_comment": "테스트 전용 더미 값 — OpenDART 개발가이드 공시검색(list.json) 필드 기준, 실응답 미대조. 회사명 · 접수번호 · 제출인은 가짜",
+  "status": "000",
+  "message": "정상",
+  "page_no": 1,
+  "page_count": 100,
+  "total_count": 3,
+  "total_page": 1,
+  "list": [
+    {
+      "corp_code": "00999901", "corp_name": "테스트전자", "stock_code": "999901", "corp_cls": "Y",
+      "report_nm": "  주요사항보고서(자기주식취득결정)  ", "rcept_no": "20261105900001",
+      "flr_nm": "테스트전자", "rcept_dt": "20261105", "rm": ""
+    },
+    {
+      "corp_code": "00999901", "corp_name": "테스트전자", "stock_code": "999901", "corp_cls": "Y",
+      "report_nm": "[기재정정]주요사항보고서(유상증자결정)", "rcept_no": "20261104900002",
+      "flr_nm": "테스트전자", "rcept_dt": "20261104", "rm": "정"
+    },
+    {
+      "corp_code": "00999901", "corp_name": "테스트전자", "stock_code": "999901", "corp_cls": "Y",
+      "report_nm": "임원ㆍ주요주주특정증권등소유상황보고서", "rcept_no": "20261106900003",
+      "flr_nm": "테스트 제출인", "rcept_dt": "20261106", "rm": ""
+    }
+  ]
+}

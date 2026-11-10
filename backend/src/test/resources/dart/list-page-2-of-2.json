@@ -1,0 +1,16 @@
+{
+  "_comment": "테스트 전용 더미 값 — 2페이지 중 2페이지, 실응답 미대조",
+  "status": "000",
+  "message": "정상",
+  "page_no": 2,
+  "page_count": 2,
+  "total_count": 3,
+  "total_page": 2,
+  "list": [
+    {
+      "corp_code": "00999901", "corp_name": "테스트전자", "stock_code": "999901", "corp_cls": "Y",
+      "report_nm": "주요사항보고서(회사합병결정)", "rcept_no": "20261106900013",
+      "flr_nm": "테스트전자", "rcept_dt": "20261106", "rm": ""
+    }
+  ]
+}

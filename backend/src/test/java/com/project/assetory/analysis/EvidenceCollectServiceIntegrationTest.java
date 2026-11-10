@@ -37,7 +37,9 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import com.project.assetory.analysis.dart.DartDisclosureCollector;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
@@ -66,6 +68,8 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
     @Autowired EvidenceCollectService service;
     @Autowired StockEventAnalysisRepository analysisRepository;
     @MockitoSpyBean EventSourceRepository eventSourceRepository;
+    // 운영 수집기(B2 DART)는 이 테스트에서 뺀다 — 목의 supports()는 false라 실행되지 않고, 가짜 수집기 3개만 돈다
+    @MockitoBean DartDisclosureCollector dartDisclosureCollector;
     @Autowired StringRedisTemplate redis;
     @Autowired TransactionTemplate tx;
     @Autowired UserRepository userRepository;
