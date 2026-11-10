@@ -59,6 +59,8 @@ class DartDisclosureCollectorIntegrationTest extends IntegrationTestSupport {
 
     @MockitoBean DartApiClient dartApiClient;
     @MockitoBean DartCorpCodeCache corpCodeCache;
+    // 뉴스 수집기(B3)는 이 테스트에서 뺀다 — 목의 supports()는 false라 실행되지 않고, DART만 도는 상황을 유지한다
+    @MockitoBean com.project.assetory.analysis.naver.NaverNewsCollector naverNewsCollector;
 
     @Autowired EvidenceCollectService service;
     @Autowired StockEventAnalysisRepository analysisRepository;

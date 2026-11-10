@@ -68,8 +68,9 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
     @Autowired EvidenceCollectService service;
     @Autowired StockEventAnalysisRepository analysisRepository;
     @MockitoSpyBean EventSourceRepository eventSourceRepository;
-    // 운영 수집기(B2 DART)는 이 테스트에서 뺀다 — 목의 supports()는 false라 실행되지 않고, 가짜 수집기 3개만 돈다
+    // 운영 수집기(B2 DART · B3 네이버)는 이 테스트에서 뺀다 — 목의 supports()는 false라 실행되지 않고, 가짜 수집기 3개만 돈다
     @MockitoBean DartDisclosureCollector dartDisclosureCollector;
+    @MockitoBean com.project.assetory.analysis.naver.NaverNewsCollector naverNewsCollector;
     @Autowired StringRedisTemplate redis;
     @Autowired TransactionTemplate tx;
     @Autowired UserRepository userRepository;
