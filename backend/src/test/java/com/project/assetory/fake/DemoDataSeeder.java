@@ -50,7 +50,8 @@ import java.util.Map;
  *   <li>회원 · 연동 계좌 · 자산 · 현재 보유 종목 — 실제 엔티티 생성 경로(비밀번호 인코더, 계좌번호 암호화 · 마스킹)</li>
  *   <li>가짜 CODEF 보유 조회 응답 등록 — 화면의 수동 새로고침이 마지막 기록과 같은 구성을 받는다</li>
  *   <li>날짜별 기록 — 실제 SnapshotSaveService로 날짜 오름차순 저장(직전 COMPLETE 사슬 · 시장가격 영향을 운영과 같은 계산으로)</li>
- *   <li>급등락 이벤트 — demo1 급등일 · 급락일에 실제 StockChangeDetectionService 실행 (A6)</li>
+ *   <li>급등락 이벤트 — demo1 이벤트일(200 · 45 · 5평일 전)에 실제 StockChangeDetectionService 실행 (A6)</li>
+ *   <li>지수 · 지표 · 근거 (B5) — DemoEvidenceSeeder: 가짜 서버 등록 후 실제 수집 서비스 실행. 순서 = 시세 → 지수 → 감지 → 근거</li>
  * </ol>
  * 일일 배치(DailyAssetBatchService)는 쓰지 않는다 — 외부 호출 경로 대신 시나리오 결과를 그대로 넣는다.
  */
@@ -79,6 +80,7 @@ public class DemoDataSeeder implements ApplicationRunner {
     private final SnapshotSaveService snapshotSaveService;
     private final StockChangeDetectionService stockChangeDetectionService;
     private final TransactionTemplate tx;
+    private final DemoEvidenceSeeder evidenceSeeder;
 
     public DemoDataSeeder(Clock clock, FakeKisServer kisServer, FakeCodefApiClient codefApiClient,
                           PasswordEncoder passwordEncoder, UserRepository userRepository,
@@ -86,7 +88,8 @@ public class DemoDataSeeder implements ApplicationRunner {
                           AssetRepository assetRepository, DepositDetailRepository depositDetailRepository,
                           HoldingRepository holdingRepository, StockPriceRepository stockPriceRepository,
                           SnapshotSaveService snapshotSaveService, StockChangeDetectionService stockChangeDetectionService,
-                          TransactionTemplate tx) {
+                          TransactionTemplate tx, DemoEvidenceSeeder evidenceSeeder) {
+        this.evidenceSeeder = evidenceSeeder;
         this.clock = clock;
         this.kisServer = kisServer;
         this.codefApiClient = codefApiClient;
@@ -112,6 +115,8 @@ public class DemoDataSeeder implements ApplicationRunner {
         DemoScenario scenario = DemoScenario.of(LocalDate.now(clock));
 
         seedPrices(scenario);
+        // B5 지수 · 지표 — 시세 다음(확정 사항 5). 실제 MacroIndicatorCollectService가 가짜 한투 · ECOS로 수집
+        int indicators = evidenceSeeder.seedIndicators(scenario);
         int snapshots = 0;
         Long demo1UserId = null;
         for (DemoUser user : DemoUser.values()) {
@@ -127,9 +132,12 @@ public class DemoDataSeeder implements ApplicationRunner {
             }
         }
         int events = seedEvents(demo1UserId, scenario);
+        // B5 근거 — 감지가 만든 분석 행에 실제 EvidenceCollectService가 가짜 DART · 네이버로 수집
+        List<String> evidence = evidenceSeeder.seedEvidence(scenario);
 
-        log.info("[FakeSeed] 데모 데이터 준비 완료 — 계정 {}개, 기록 {}건, 급등락 이벤트 {}건, 기간 {} ~ {}, {}ms. 로그인: demo1~demo{}@assetory.test",
-                DemoUser.values().length, snapshots, events, scenario.calendar().get(0),
+        log.info("[FakeSeed] 데모 데이터 준비 완료 — 계정 {}개, 기록 {}건, 급등락 이벤트 {}건, 지수 · 지표 {}행, 근거 {}, 기간 {} ~ {}, {}ms. "
+                        + "로그인: demo1~demo{}@assetory.test",
+                DemoUser.values().length, snapshots, events, indicators, evidence, scenario.calendar().get(0),
                 scenario.calendar().get(scenario.calendar().size() - 1), (System.nanoTime() - started) / 1_000_000,
                 DemoUser.values().length);
     }
@@ -143,7 +151,7 @@ public class DemoDataSeeder implements ApplicationRunner {
      */
     private int seedEvents(Long demo1UserId, DemoScenario scenario) {
         int created = 0;
-        for (LocalDate date : List.of(scenario.surgeDate(), scenario.plungeDate())) {
+        for (LocalDate date : scenario.detectionDates()) {
             created += stockChangeDetectionService.detect(demo1UserId, date, date.atTime(16, 0));
         }
         return created;
