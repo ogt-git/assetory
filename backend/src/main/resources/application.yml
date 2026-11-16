@@ -127,6 +127,12 @@ assetory:
     max-excluded-tickers: ${ASSETORY_DETECTION_MAX_EXCLUDED_TICKERS:50}
     # 최초 연동 시 과거 이벤트 소급 범위 — 종목마다 오늘 이하 최신 N거래일 시세 (FR-DT-08, "최근 30일" = 20거래일)
     backfill-trading-days: ${ASSETORY_DETECTION_BACKFILL_TRADING_DAYS:20}
+  # 원인 분석 (FR-CA-05 · 06) — 근거 0건일 때 시장 동반(MARKET_MOVE) 판정 기준
+  # MARKET_MOVE = |초과 변동| ≤ 이 값 그리고 |초과 변동| ≤ |지수 변동| (경계 포함, EvidenceStatusCalculator)
+  analysis:
+    market-move:
+      # TODO(01-§14 #12) 시장 동반 기준 — 운영 데이터로 조정
+      max-excess-rate: ${ASSETORY_ANALYSIS_MARKET_MOVE_MAX_EXCESS_RATE:2.0}
   # 근거 수집 (FR-CA-01 · 02) — 수집기 구현은 B2(DART) · B3(네이버 뉴스) · B4(ECOS)
   evidence:
     # 수집기 외부 호출 1회 연결 · 읽기 타임아웃 (NFR-PF-05). 수집기 전체 실행 시간 합은 공유 분석 락 TTL(5분)보다 작아야 한다
