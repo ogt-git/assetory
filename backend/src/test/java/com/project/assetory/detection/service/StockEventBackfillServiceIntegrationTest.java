@@ -80,7 +80,7 @@ class StockEventBackfillServiceIntegrationTest extends IntegrationTestSupport {
         prices(t, 25, i -> i == 0 ? "9" : i == 10 ? "6" : i == 20 ? "-7" : "1");
         Member m = member(t);
 
-        int created = backfillService.backfill(m.assetId(), true);
+        int created = backfillService.backfill(m.assetId(), true).created();
 
         assertThat(created).isEqualTo(2);
         assertThat(eventDates(m.userId())).containsExactly(day(10), day(20));
@@ -110,7 +110,7 @@ class StockEventBackfillServiceIntegrationTest extends IntegrationTestSupport {
         prices(etf, 3, i -> i == 1 ? "-5" : "0.5");
         Member m = member(etf, SecurityType.ETF);
 
-        assertThat(backfillService.backfill(m.assetId(), true)).isEqualTo(1);
+        assertThat(backfillService.backfill(m.assetId(), true).created()).isEqualTo(1);
         assertThat(eventDates(m.userId())).containsExactly(day(1));
     }
 
@@ -163,8 +163,13 @@ class StockEventBackfillServiceIntegrationTest extends IntegrationTestSupport {
         prices(t, 5, i -> i % 2 == 0 ? "6" : "1");
         Member m = member(t);
 
-        assertThat(backfillService.backfill(m.assetId(), true)).isEqualTo(3);
-        assertThat(backfillService.backfill(m.assetId(), true)).isZero();
+        StockEventBackfillService.Result first = backfillService.backfill(m.assetId(), true);
+        StockEventBackfillService.Result second = backfillService.backfill(m.assetId(), true);
+        assertThat(first.created()).isEqualTo(3);
+        assertThat(second.created()).isZero();
+        // Q-4 — 다시 실행해 이벤트를 만들지 않아도, 다룬 분석 id는 같은 3건을 돌려준다(근거 수집 후보, 중복 없음)
+        assertThat(first.analysisIds()).hasSize(3).doesNotHaveDuplicates();
+        assertThat(second.analysisIds()).containsExactlyInAnyOrderElementsOf(first.analysisIds());
 
         assertThat(count("user_market_events where user_id = ?", m.userId())).isEqualTo(3);
         assertThat(count("stock_event_analyses where ticker = ?", t)).isEqualTo(3);
@@ -180,7 +185,7 @@ class StockEventBackfillServiceIntegrationTest extends IntegrationTestSupport {
         Member m = member(t);
         settingService.update(m.userId(), DetectionRule.STOCK_PRICE_CHANGE, new DetectionSettingUpdateRequest(false, null, null));
 
-        assertThat(backfillService.backfill(m.assetId(), true)).isZero();
+        assertThat(backfillService.backfill(m.assetId(), true).created()).isZero();
         assertThat(count("user_market_events where user_id = ?", m.userId())).isZero();
         assertThat(count("stock_event_analyses where ticker = ?", t)).isZero();
     }
@@ -228,7 +233,7 @@ class StockEventBackfillServiceIntegrationTest extends IntegrationTestSupport {
         userMarketEventRepository.saveAndFlush(UserMarketEvent.create(userRepository.getReferenceById(m.userId()), analysis,
                 Direction.UP, new BigDecimal("5"), new BigDecimal("1000"), new BigDecimal("1.00"), new BigDecimal("2.0000"), false));
 
-        assertThat(backfillService.backfill(m.assetId(), true)).isEqualTo(1);
+        assertThat(backfillService.backfill(m.assetId(), true).created()).isEqualTo(1);
 
         UserMarketEvent live = event(m, t, day(0));
         assertThat(live.isBackfilled()).isFalse();
@@ -263,7 +268,7 @@ class StockEventBackfillServiceIntegrationTest extends IntegrationTestSupport {
         prices(t, 2, i -> "10");
         Member m = member(t);
 
-        assertThat(backfillService.backfill(m.assetId(), false)).isEqualTo(2);
+        assertThat(backfillService.backfill(m.assetId(), false).created()).isEqualTo(2);
         assertThat(flag(m)).isFalse();
     }
 
@@ -299,7 +304,7 @@ class StockEventBackfillServiceIntegrationTest extends IntegrationTestSupport {
         statistics.clear();
         int created;
         try {
-            created = backfillService.backfill(m.assetId(), true);
+            created = backfillService.backfill(m.assetId(), true).created();
         } finally {
             statistics.setStatisticsEnabled(false);
         }

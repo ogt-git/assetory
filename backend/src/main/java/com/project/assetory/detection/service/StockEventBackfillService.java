@@ -29,7 +29,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -68,23 +70,29 @@ public class StockEventBackfillService {
     /**
      * @param assetId        증권 계좌 자산(assets.id, SECURITIES)
      * @param pricesComplete 시세 소급에서 실패한 종목이 없었는지 — true일 때만 backfill_completed를 켠다
-     * @return 이번에 새로 만든 소급 이벤트 수
+     * @return 이번에 새로 만든 소급 이벤트 수 + 이번 소급이 다룬 공유 분석 id(이미 이벤트가 있어 건너뛴 분석 포함 — Q-4 근거 수집 후보)
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public int backfill(Long assetId, boolean pricesComplete) {
+    public Result backfill(Long assetId, boolean pricesComplete) {
         Optional<Asset> asset = assetRepository.findById(assetId);
         if (asset.isEmpty()) {
-            return 0;
+            return Result.EMPTY;
         }
         Long userId = asset.get().getUser().getId();
-        int created = createEvents(userId, assetId);
+        List<Long> analysisIds = new ArrayList<>();
+        int created = createEvents(userId, assetId, analysisIds);
         if (pricesComplete) {
             userSettingsService.getOrCreate(userId).markBackfillCompleted();
         }
-        return created;
+        return new Result(created, List.copyOf(analysisIds));
     }
 
-    private int createEvents(Long userId, Long assetId) {
+    /** created = 새로 만든 소급 이벤트 수, analysisIds = 임계치를 넘어 다룬 공유 분석 id(중복 없음) */
+    public record Result(int created, List<Long> analysisIds) {
+        static final Result EMPTY = new Result(0, List.of());
+    }
+
+    private int createEvents(Long userId, Long assetId, List<Long> analysisIds) {
         Optional<DetectionRule> rule = detectionRuleRepository.findByRuleCode(DetectionRule.STOCK_PRICE_CHANGE)
                 .filter(DetectionRule::isActive);
         if (rule.isEmpty()) {
@@ -114,6 +122,9 @@ public class StockEventBackfillService {
                 }
                 StockEventAnalysis analysis = stockEventAnalysisRepository.findOrCreatePending(
                         ticker, price.getStockName(), price.getTradeDate(), price.getChangeRate());
+                if (!analysisIds.contains(analysis.getId())) {
+                    analysisIds.add(analysis.getId());
+                }
                 if (userMarketEventRepository.findByUserIdAndAnalysisId(userId, analysis.getId()).isPresent()) {
                     continue;   // 이미 있는 이벤트(실시간 포함)는 그대로
                 }
