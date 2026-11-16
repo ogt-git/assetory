@@ -101,6 +101,7 @@ public class DemoEvidenceSeeder {
                 Map.entry(scenario.surgeDate(), DemoScenario.SURGE_TICKER),
                 Map.entry(scenario.plungeDate(), DemoScenario.PLUNGE_TICKER),
                 Map.entry(scenario.plungeDate(), DemoScenario.MARKET_MOVE_TICKER),
+                Map.entry(scenario.newsOnlyDate(), DemoScenario.NEWS_ONLY_TICKER),
                 Map.entry(scenario.recentSurgeDate(), DemoScenario.RECENT_SURGE_TICKER))) {
             StockEventAnalysis analysis = analysisRepository.findByTickerAndEventDate(event.getValue(), event.getKey()).orElse(null);
             if (analysis == null) {

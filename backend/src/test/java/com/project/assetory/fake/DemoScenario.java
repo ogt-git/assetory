@@ -49,6 +49,8 @@ public final class DemoScenario {
     public static final String SALE_TICKER = "000660";
     /** B5 — 최근 급등(5평일 전): 공시 + 뉴스가 있는 이벤트. 뉴스 보관 기한(20일) 안이라 "같은 날 보도"를 보여 줄 수 있다 */
     public static final String RECENT_SURGE_TICKER = "005930";
+    /** Q-3 — 뉴스만 있는 급등(10평일 전): 공시 0건 · 기사 2건 → RELATED_FOUND + SUMMARY_SKIPPED(LLM 미호출) 시연 */
+    public static final String NEWS_ONLY_TICKER = "035720";
 
     private static final long SEED = 20261030L;
 
@@ -61,11 +63,13 @@ public final class DemoScenario {
     private static final int ACCOUNT_FAIL_OFFSET = 20;
     private static final int ALL_FAIL_OFFSET = 90;
     private static final int RECENT_SURGE_OFFSET = 5;
+    private static final int NEWS_ONLY_OFFSET = 10;
 
     private static final BigDecimal SURGE_RATE = new BigDecimal("0.07");
     private static final BigDecimal PLUNGE_RATE = new BigDecimal("-0.08");
     private static final BigDecimal RECENT_SURGE_RATE = new BigDecimal("0.061");
     private static final BigDecimal MARKET_MOVE_RATE = new BigDecimal("-0.055");
+    private static final BigDecimal NEWS_ONLY_RATE = new BigDecimal("0.058");
     // 평소 하루 변동 상한 — 급등락(±5%)은 위 이벤트 날에만 생긴다
     private static final double NORMAL_LIMIT = 0.04;
     private static final double NORMAL_SIGMA = 0.012;
@@ -226,9 +230,13 @@ public final class DemoScenario {
         return dateAt(RECENT_SURGE_OFFSET);
     }
 
-    /** 급등락 감지(A6)를 돌릴 날 — 200 · 45 · 5평일 전. 근거 수집도 이 날들의 분석에 돌린다 */
+    public LocalDate newsOnlyDate() {
+        return dateAt(NEWS_ONLY_OFFSET);
+    }
+
+    /** 급등락 감지(A6)를 돌릴 날 — 200 · 45 · 10 · 5평일 전. 근거 수집도 이 날들의 분석에 돌린다 */
     public List<LocalDate> detectionDates() {
-        return List.of(surgeDate(), plungeDate(), recentSurgeDate());
+        return List.of(surgeDate(), plungeDate(), newsOnlyDate(), recentSurgeDate());
     }
 
     /** KOSPI · KOSDAQ 일별 지수(오래된 순, 달력 전체) — 가짜 한투에 등록한다 */
@@ -256,6 +264,11 @@ public final class DemoScenario {
 
     public Map<String, String> corpCodes() {
         return CORP_CODES;
+    }
+
+    /** 10평일 전(뉴스만) 이벤트에 저장될 뉴스 건수 — 중복 · 기간 밖 기사 없음 */
+    public int expectedNewsOnlyCount() {
+        return 2;
     }
 
     /** 5평일 전 이벤트에 저장될 뉴스 건수 — 기사 5건 중 같은 원문 URL 1건만 빠진다(제목 필터 없음, B0 N4) */
@@ -450,6 +463,9 @@ public final class DemoScenario {
         if (offset == RECENT_SURGE_OFFSET && ticker.equals(RECENT_SURGE_TICKER)) {
             return RECENT_SURGE_RATE;
         }
+        if (offset == NEWS_ONLY_OFFSET && ticker.equals(NEWS_ONLY_TICKER)) {
+            return NEWS_ONLY_RATE;
+        }
         return BigDecimal.valueOf(normal).setScale(6, RoundingMode.HALF_UP);
     }
 
@@ -468,7 +484,7 @@ public final class DemoScenario {
                 double normal = Math.max(-INDEX_LIMIT, Math.min(INDEX_LIMIT, random.nextGaussian() * INDEX_SIGMA));
                 if (i > 0) {
                     BigDecimal rate = offset == PLUNGE_OFFSET ? INDEX_PLUNGE_RATE.get(code)
-                            : offset == SURGE_OFFSET || offset == RECENT_SURGE_OFFSET ? INDEX_FLAT_RATE
+                            : offset == SURGE_OFFSET || offset == RECENT_SURGE_OFFSET || offset == NEWS_ONLY_OFFSET ? INDEX_FLAT_RATE
                             : BigDecimal.valueOf(normal).setScale(6, RoundingMode.HALF_UP);
                     value = value.multiply(BigDecimal.ONE.add(rate)).setScale(2, RoundingMode.HALF_UP);
                 }
@@ -503,7 +519,7 @@ public final class DemoScenario {
         return Collections.unmodifiableMap(result);
     }
 
-    // 5평일 전(005930) · 45평일 전(035720)에만 공시. 200평일 전은 근거 0건(NO_EVIDENCE 시연). 보고서명은 지어낸 문구
+    // 5평일 전(005930) · 45평일 전(035720)에만 공시. 200평일 전은 근거 0건(NO_EVIDENCE 시연), 10평일 전은 뉴스만(Q-3). 보고서명은 지어낸 문구
     private List<DemoDisclosure> buildDisclosures() {
         LocalDate recent = recentSurgeDate();
         LocalDate plunge = plungeDate();
@@ -521,9 +537,21 @@ public final class DemoScenario {
 
     /**
      * 5평일 전 이벤트 기사 5건(종목코드로 검색) — 장중 1 · 장 마감 후 1(FR-CA-08 구분) · 제목에 종목명 없는 업종 기사 1(남는다)
-     * · 같은 원문 URL 1(중복 제거) · 전날 1. 45 · 200평일 전은 기사 없음(뉴스 보관 기한이 지난 이벤트). 제목 · 링크는 지어낸 더미 값
+     * · 같은 원문 URL 1(중복 제거) · 전날 1. 10평일 전(035720, 공시 없음)은 기사 2건 — 장중 1 · 장 마감 후 1 (Q-3 뉴스만).
+     * 45 · 200평일 전은 기사 없음(뉴스 보관 기한이 지난 이벤트). 제목 · 링크는 지어낸 더미 값
      */
     private List<DemoArticle> buildArticles() {
+        List<DemoArticle> result = new ArrayList<>(recentSurgeArticles());
+        LocalDate n = newsOnlyDate();
+        String newsOnlyName = stockName(NEWS_ONLY_TICKER);
+        result.add(new DemoArticle(NEWS_ONLY_TICKER, "<b>" + newsOnlyName + "</b> 장중 급등… 데모 기사", "https://news.demo.example/a/2001",
+                "https://n.news.naver.com/demo/2001", "데모 요약: <b>" + newsOnlyName + "</b> 거래량 증가", at(n, 11, 20)));
+        result.add(new DemoArticle(NEWS_ONLY_TICKER, "<b>" + newsOnlyName + "</b> 마감 뒤 데모 보도", "https://news.demo.example/a/2002",
+                "https://n.news.naver.com/demo/2002", "데모 요약: 장 마감 뒤 나온 기사", at(n, 16, 40)));
+        return List.copyOf(result);
+    }
+
+    private List<DemoArticle> recentSurgeArticles() {
         LocalDate d = recentSurgeDate();
         String name = stockName(RECENT_SURGE_TICKER);
         String q = RECENT_SURGE_TICKER;
@@ -567,7 +595,7 @@ public final class DemoScenario {
     static {
         Set<Integer> offsets = new HashSet<>(PRICE_FAIL_OFFSETS.keySet());
         for (int offset : List.of(SURGE_OFFSET, PLUNGE_OFFSET, BUY_OFFSET, SALE_OFFSET, ACCOUNT_FAIL_OFFSET, ALL_FAIL_OFFSET,
-                RECENT_SURGE_OFFSET, BASE_RATE_CUT_1, BASE_RATE_CUT_2)) {
+                RECENT_SURGE_OFFSET, NEWS_ONLY_OFFSET, BASE_RATE_CUT_1, BASE_RATE_CUT_2)) {
             if (!offsets.add(offset)) {
                 throw new IllegalStateException("데모 이벤트 날짜가 겹친다: " + offset);
             }

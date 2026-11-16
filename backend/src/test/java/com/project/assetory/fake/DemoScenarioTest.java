@@ -304,10 +304,11 @@ class DemoScenarioTest {
         }
 
         @Test
-        @DisplayName("1-b. 감지 대상 이벤트일 = 200 · 45 · 5평일 전, 서로 겹치지 않는다")
+        @DisplayName("1-b. 감지 대상 이벤트일 = 200 · 45 · 10 · 5평일 전, 서로 겹치지 않는다")
         void detectionDates() {
             assertThat(SCENARIO.detectionDates()).containsExactly(
-                    SCENARIO.surgeDate(), SCENARIO.plungeDate(), SCENARIO.recentSurgeDate());
+                    SCENARIO.surgeDate(), SCENARIO.plungeDate(), SCENARIO.newsOnlyDate(), SCENARIO.recentSurgeDate());
+            assertThat(SCENARIO.detectionDates()).doesNotHaveDuplicates();
         }
 
         @Test
@@ -376,7 +377,9 @@ class DemoScenarioTest {
         void articles() {
             LocalDate date = SCENARIO.recentSurgeDate();
             String name = DemoScenario.stockName(DemoScenario.RECENT_SURGE_TICKER);
-            List<DemoScenario.DemoArticle> list = SCENARIO.articles();
+            // 5평일 전 이벤트 기사만 본다 — 10평일 전 뉴스만 이벤트(Q-3)는 4-b
+            List<DemoScenario.DemoArticle> list = SCENARIO.articles().stream()
+                    .filter(a -> a.query().equals(DemoScenario.RECENT_SURGE_TICKER)).toList();
 
             assertThat(list).allSatisfy(a -> {
                 assertThat(a.query()).isEqualTo(DemoScenario.RECENT_SURGE_TICKER); // 수집기는 종목코드로 검색한다(B0 N4)
@@ -388,6 +391,33 @@ class DemoScenarioTest {
             assertThat(list).filteredOn(a -> !a.title().replaceAll("<[^>]*>", "").contains(name)).hasSize(1);
             assertThat(list.stream().map(DemoScenario.DemoArticle::originallink).distinct().count()).isEqualTo(list.size() - 1);
             assertThat(SCENARIO.expectedNewsCount()).isEqualTo(list.size() - 1); // 중복 1건만 제외(제목 필터 없음)
+        }
+
+        @Test
+        @DisplayName("4-b. 뉴스만 시연(Q-3): 10평일 전 035720은 +5% 이상 · 보유 중, 기사 2건(장중 · 장 마감 후) · 그날 전후 공시 0건 → RELATED_FOUND · 요약 입력 없음")
+        void newsOnlyDemo() {
+            LocalDate date = SCENARIO.newsOnlyDate();
+            String ticker = DemoScenario.NEWS_ONLY_TICKER;
+            BigDecimal change = rate(SCENARIO.prices().get(ticker).stream()
+                    .map(p -> new DemoScenario.SeriesPoint(p.date(), p.close())).toList(), date);
+            List<DemoScenario.DemoArticle> news = SCENARIO.articles().stream().filter(a -> a.query().equals(ticker)).toList();
+
+            assertThat(change).isGreaterThanOrEqualTo(new BigDecimal("5"));
+            assertThat(quantity(SCENARIO.plan(DemoUser.DEMO1).days().stream().filter(d -> d.date().equals(date)).findFirst().orElseThrow(),
+                    ticker)).isPositive();
+            assertThat(news).hasSize(SCENARIO.expectedNewsOnlyCount())
+                    .allSatisfy(a -> assertThat(a.pubDate().toLocalDate()).isEqualTo(date));
+            java.time.LocalTime close = java.time.LocalTime.of(15, 30);
+            assertThat(news).anyMatch(a -> a.pubDate().toLocalTime().isBefore(close))
+                    .anyMatch(a -> !a.pubDate().toLocalTime().isBefore(close));
+            assertThat(SCENARIO.disclosures()).noneMatch(d -> d.ticker().equals(ticker) && within(d.receiptDate(), date));
+
+            java.util.Map<com.project.assetory.analysis.domain.SourceType, Long> counts =
+                    java.util.Map.of(com.project.assetory.analysis.domain.SourceType.NEWS, (long) news.size());
+            assertThat(com.project.assetory.analysis.domain.EvidenceStatusCalculator
+                    .judge(change, rate(SCENARIO.indexes().get("KOSPI"), date), counts, new BigDecimal("2.0")).status())
+                    .isEqualTo(com.project.assetory.analysis.domain.EvidenceStatus.RELATED_FOUND);
+            assertThat(com.project.assetory.analysis.domain.EvidenceStatusCalculator.hasSummaryInput(counts)).isFalse();
         }
 
         @Test
