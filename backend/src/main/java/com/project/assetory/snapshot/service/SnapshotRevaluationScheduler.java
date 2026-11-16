@@ -5,7 +5,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-// 잠정 종가 보정 트리거 — assetory.sync.confirm.enabled=true일 때만 등록된다 (기본 비활성, 일일 배치와 함께 켠다)
+// 잠정 종가 보정 트리거 — assetory.sync.confirm.enabled=true일 때만 등록된다 (기본값은 assetory.sync.batch.enabled를 따른다 — application.yml)
 // 기본 cron은 영업일 07:30 — 한투 거래일 행이 확정되는 다음 거래일 아침(07:15 이전 관측, kis-verification V4-f) 뒤, 장 시작(09:00) 전
 @Component
 @RequiredArgsConstructor
