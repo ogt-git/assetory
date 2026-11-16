@@ -116,7 +116,7 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("1. ETF면 공시 · 뉴스 수집기를 부르지 않는다 — 거시지표 수집기만 실행 (FR-CA-01 · 02)")
+    @DisplayName("1. ETF면 공시 · 뉴스 수집기를 부르지 않는다 — 거시지표 수집기만 실행 (FR-CA-01 · 02), 공시가 없어 요약 생략 (Q-3)")
     void etf_skipsDisclosureAndNews() {
         StockEventAnalysis analysis = newAnalysis();
         holding(analysis.getTicker(), SecurityType.ETF);
@@ -130,7 +130,7 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
         assertThat(macro.lastTarget.etf()).isTrue();
         assertThat(result.outcome()).isEqualTo(Outcome.COMPLETED);
         assertThat(result.runs()).extracting(EvidenceCollectResult.CollectorRun::sourceType).containsExactly(SourceType.MACRO);
-        assertThat(reload(analysis).getAnalysisStatus()).isEqualTo(AnalysisStatus.COLLECTING);
+        assertThat(reload(analysis).getAnalysisStatus()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);
     }
 
     @Test
@@ -148,7 +148,7 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("2. 수집기 하나가 예외를 내도 다른 수집기 근거는 저장되고 COLLECTING")
+    @DisplayName("2. 수집기 하나가 예외를 내도 다른 수집기 근거는 저장된다 — 공시 실패 · 뉴스만이라 요약 생략 (Q-3)")
     void oneCollectorFails_othersSaved() {
         StockEventAnalysis analysis = newAnalysis();
         disclosure.behavior = t -> {
@@ -163,7 +163,7 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
                 .singleElement().satisfies(r -> assertThat(r.success()).isFalse());
         assertThat(externalIds(analysis)).containsExactly("https://news.example.com/1");
         StockEventAnalysis reloaded = reload(analysis);
-        assertThat(reloaded.getAnalysisStatus()).isEqualTo(AnalysisStatus.COLLECTING);
+        assertThat(reloaded.getAnalysisStatus()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);
         assertThat(reloaded.getEvidenceCount()).isEqualTo(1);
     }
 
@@ -188,10 +188,10 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
         assertThat(reloaded.getEvidenceCount()).isZero();
         assertThat(lockValue(analysis)).isNull();
 
-        // 다음 실행에서 성공하면 정상 진행된다
+        // 다음 실행에서 성공하면 정상 진행된다 (거시지표만 저장 → 공시가 없어 요약 생략, Q-3)
         macro.behavior = t -> List.of(evidence(SourceType.MACRO, "macro-retry"));
         assertThat(service.collect(analysis.getId()).outcome()).isEqualTo(Outcome.COMPLETED);
-        assertThat(reload(analysis).getAnalysisStatus()).isEqualTo(AnalysisStatus.COLLECTING);
+        assertThat(reload(analysis).getAnalysisStatus()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);
     }
 
     @Test
@@ -219,7 +219,7 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
         EvidenceCollectResult second = service.collect(analysis.getId());
 
         assertThat(second.outcome()).isEqualTo(Outcome.SKIPPED_NOT_PENDING);
-        assertThat(second.status()).isEqualTo(AnalysisStatus.COLLECTING);
+        assertThat(second.status()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED); // 뉴스만 → 요약 생략(Q-3), 재실행해도 그대로
         assertThat(news.calls.get()).isEqualTo(1);
         assertThat(eventSourceRepository.countByAnalysisId(analysis.getId())).isEqualTo(1);
         assertThat(reload(analysis).getUpdatedAt()).isEqualTo(updatedAt);
@@ -363,7 +363,7 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("14. 판정 — 거시지표(MACRO)만 저장되면 근거 0건으로 판정하되 evidence_count는 저장 행 수 그대로")
+    @DisplayName("14. 판정 — 거시지표(MACRO)만 저장되면 근거 0건으로 판정하되 evidence_count는 저장 행 수 그대로, 공시가 없어 요약 생략 (Q-3)")
     void judge_macroOnly() {
         StockEventAnalysis analysis = newAnalysis(MARKET_DATE, "-5.5");
         market(analysis, "STK");
@@ -373,9 +373,69 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
         EvidenceCollectResult result = service.collect(analysis.getId());
 
         StockEventAnalysis saved = reload(analysis);
-        assertThat(result.status()).isEqualTo(AnalysisStatus.COLLECTING);
+        assertThat(result.status()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);
+        assertThat(saved.getAnalysisStatus()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);
         assertThat(saved.getEvidenceCount()).isEqualTo(1);
         assertThat(saved.getEvidenceStatus()).isEqualTo(EvidenceStatus.MARKET_MOVE);
+    }
+
+    @Test
+    @DisplayName("19. 요약 생략(Q-3) — 공시 0건 · 뉴스 2건이면 RELATED_FOUND + SUMMARY_SKIPPED, 근거 수 · 초과 변동은 그대로 저장")
+    void newsOnly_summarySkipped() {
+        StockEventAnalysis analysis = newAnalysis(MARKET_DATE, "-5.5");
+        market(analysis, "STK");
+        index(IndicatorCode.KOSPI, MARKET_DATE, "-4.0000");
+        news.behavior = t -> List.of(evidence(SourceType.NEWS, "n-1"), evidence(SourceType.NEWS, "n-2"));
+
+        EvidenceCollectResult result = service.collect(analysis.getId());
+
+        StockEventAnalysis saved = reload(analysis);
+        assertThat(result.status()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);
+        assertThat(saved.getAnalysisStatus()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);
+        assertThat(saved.getEvidenceStatus()).isEqualTo(EvidenceStatus.RELATED_FOUND);
+        assertThat(saved.getEvidenceCount()).isEqualTo(2);
+        assertThat(saved.getExcessRate()).isEqualByComparingTo("-1.5000");
+        assertThat(saved.getAiSummary()).isNull();
+    }
+
+    @Test
+    @DisplayName("20. 요약 대기 — 공시 1건 + 뉴스 1건이면 RELATED_FOUND + COLLECTING 유지 (LLM 단계 대상)")
+    void disclosureAndNews_staysCollecting() {
+        StockEventAnalysis analysis = newAnalysis();
+        disclosure.behavior = t -> List.of(evidence(SourceType.DISCLOSURE, "d-1"));
+        news.behavior = t -> List.of(evidence(SourceType.NEWS, "n-1"));
+
+        EvidenceCollectResult result = service.collect(analysis.getId());
+
+        assertThat(result.status()).isEqualTo(AnalysisStatus.COLLECTING);
+        assertThat(reload(analysis).getEvidenceStatus()).isEqualTo(EvidenceStatus.RELATED_FOUND);
+    }
+
+    @Test
+    @DisplayName("21. 근거 0건은 요약 생략 규칙을 타지 않는다 — NO_EVIDENCE 그대로")
+    void noEvidence_unchanged() {
+        StockEventAnalysis analysis = newAnalysis();
+
+        EvidenceCollectResult result = service.collect(analysis.getId());
+
+        assertThat(result.status()).isEqualTo(AnalysisStatus.NO_EVIDENCE);
+        assertThat(reload(analysis).getAnalysisStatus()).isEqualTo(AnalysisStatus.NO_EVIDENCE);
+        assertThat(reload(analysis).getEvidenceStatus()).isEqualTo(EvidenceStatus.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("22. 요약 생략 — 값이 잘못된 공시(저장 전에 제외)만 있고 뉴스 1건이면 저장된 공시가 없어 SUMMARY_SKIPPED")
+    void invalidDisclosureOnly_summarySkipped() {
+        StockEventAnalysis analysis = newAnalysis();
+        disclosure.behavior = t -> List.of(
+                new CollectedEvidence(SourceType.DISCLOSURE, "url 없음", "DART", null, " ", null, null, "no-url"));
+        news.behavior = t -> List.of(evidence(SourceType.NEWS, "n-1"));
+
+        EvidenceCollectResult result = service.collect(analysis.getId());
+
+        assertThat(result.excludedCount()).isEqualTo(1);
+        assertThat(result.status()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);
+        assertThat(externalIds(analysis)).containsExactly("n-1");
     }
 
     @Test

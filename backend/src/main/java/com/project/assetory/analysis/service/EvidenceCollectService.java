@@ -47,6 +47,7 @@ import java.util.UUID;
  * 4. 실행한 수집기가 모두 실패 → 아무것도 바꾸지 않고 PENDING 유지(다음 실행 때 재시도). 실행한 수집기가 0개면 근거 0건으로 진행
  * 5. 한 트랜잭션: 값 검증 → insert-if-absent 저장 → evidence_count = 저장 행 수 → 0건 NO_EVIDENCE / 1건 이상 COLLECTING
  *    → 근거 상태 판정(지수 변동률 · 초과 변동 · evidence_status, EvidenceStatusCalculator — 공시 · 뉴스만 관련 근거로 센다)
+ *    → 공시가 0건인 COLLECTING(뉴스 · 거시지표만)은 SUMMARY_SKIPPED (Q-3, LLM 입력 근거 없음)
  * 6. finally 락 해제 — 값이 내 UUID일 때만 (TTL이 지나 남이 잡은 락을 지우지 않는다)
  *
  * 락 1차 · DB UNIQUE (analysis_id, external_id) 2차 방어(05 §13). 공유 분석 생성(A4 · A5)은 이 락을 쓰지 않고
@@ -177,7 +178,15 @@ public class EvidenceCollectService {
                     e.url(), e.snippet(), e.relevanceRank(), e.externalId(), now);
         }
         analysis.completeCollection(Math.toIntExact(eventSourceRepository.countByAnalysisId(analysisId)));
-        applyEvidenceStatus(analysis);
+        Map<SourceType, Long> counts = new EnumMap<>(SourceType.class);
+        for (EventSourceRepository.SourceTypeCount row : eventSourceRepository.countBySourceType(analysisId)) {
+            counts.put(row.getSourceType(), row.getCount());
+        }
+        applyEvidenceStatus(analysis, counts);
+        // Q-3 — 근거는 있지만 LLM에 넣을 공시가 없으면(뉴스 · 거시지표만) 요약 대기로 두지 않는다. LLM · AI 한도는 건드리지 않는다
+        if (analysis.getAnalysisStatus() == AnalysisStatus.COLLECTING && !EvidenceStatusCalculator.hasSummaryInput(counts)) {
+            analysis.skipSummary();
+        }
         return analysis.getAnalysisStatus();
     }
 
@@ -185,15 +194,11 @@ public class EvidenceCollectService {
      * 근거 상태 판정 (01 §14 #12) — 수집 저장과 같은 트랜잭션. 실패하면 수집 저장까지 롤백되고 PENDING으로 남아 다음 실행 때 다시 한다.
      * 시장 구분(market_index_code)이 없거나 KOSPI · KOSDAQ가 아니면 지수를 추측하지 않고 NULL로 판정한다
      */
-    private void applyEvidenceStatus(StockEventAnalysis analysis) {
+    private void applyEvidenceStatus(StockEventAnalysis analysis, Map<SourceType, Long> counts) {
         BigDecimal marketChangeRate = marketIndex(analysis.getMarketIndexCode())
                 .flatMap(code -> macroIndicatorRepository.findByIndicatorCodeAndBaseDate(code, analysis.getEventDate()))
                 .map(MacroIndicator::getChangeRate)
                 .orElse(null);
-        Map<SourceType, Long> counts = new EnumMap<>(SourceType.class);
-        for (EventSourceRepository.SourceTypeCount row : eventSourceRepository.countBySourceType(analysis.getId())) {
-            counts.put(row.getSourceType(), row.getCount());
-        }
         EvidenceStatusCalculator.Result result = EvidenceStatusCalculator.judge(analysis.getChangeRate(), marketChangeRate,
                 counts, analysisProperties.marketMove().maxExcessRate());
         analysis.applyEvidenceStatus(marketChangeRate, result);
