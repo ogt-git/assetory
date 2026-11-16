@@ -100,9 +100,10 @@ assetory:
       # 동기화 락 충돌(수동 새로고침 진행 중) 시 1회 재시도 전 대기 — CODEF 1회 호출 타임아웃(10초)만큼 (05 §11.2)
       lock-retry-wait-ms: ${ASSETORY_SYNC_BATCH_LOCK_RETRY_WAIT_MS:10000}
     # 잠정 종가 보정 — 16:00 배치가 읽은 종가는 잠정값이라 다음 거래일 아침에 확정 종가로 직전 기록을 다시 평가한다 (01 §14 #23)
-    # 기본 비활성(일일 배치와 함께 켠다). 한투 행 확정은 다음 거래일 07:15 이전에 관측 — 늦추려면 cron만 바꾼다
+    # 기본값은 일일 배치 설정(assetory.sync.batch.enabled)을 따른다 — 배치만 켜고 보정을 빠뜨리면 잠정 종가가 남으므로.
+    # 보정만 따로 끄거나 켤 때만 ASSETORY_SYNC_CONFIRM_ENABLED를 준다. 한투 행 확정은 다음 거래일 07:15 이전에 관측 — 늦추려면 cron만 바꾼다
     confirm:
-      enabled: ${ASSETORY_SYNC_CONFIRM_ENABLED:false}
+      enabled: ${ASSETORY_SYNC_CONFIRM_ENABLED:${assetory.sync.batch.enabled:false}}
       cron: ${ASSETORY_SYNC_CONFIRM_CRON:0 30 7 * * MON-FRI}
 
 # JWT — 서명 키는 32바이트 이상. 만료는 FR-AU-02 (AT 30분, RT 14일)
