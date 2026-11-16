@@ -151,7 +151,7 @@ public final class FakeKisServer {
                 .formatted(ticker, ticker, info[0], info[1]));
     }
 
-    // 업종기간별시세(일) — 공식 예제 필드명 기준(실응답 미대조). 대비율은 넣지 않는다(저장은 직접 계산)
+    // 업종기간별시세(일) — B0 K1 실호출(2026-11-16)과 같이 대비율 없음(저장은 직접 계산)
     private void indexDaily(HttpExchange exchange) throws IOException {
         count("index-daily");
         if (dropIfDown(exchange) || rejectBadToken(exchange)) return;

@@ -33,7 +33,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-// 한투 업종기간별시세(일) — 공식 예제 기준(실응답 미대조). KisApiClient의 토큰 · 재시도 · 0 치환 금지 규칙을 그대로 쓴다
+// 한투 업종기간별시세(일) — 필드는 B0 K1 실호출로 대조(2026-11-16). 실응답 output2에 없는 대비율은 픽스처에만 넣어 비교 경로를 본다. KisApiClient의 토큰 · 재시도 · 0 치환 금지 규칙을 그대로 쓴다
 class KisIndexDailyTest {
 
     private static final String INDEX = KisTestSupport.BASE_URL + "/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice";
@@ -97,7 +97,7 @@ class KisIndexDailyTest {
     }
 
     @Test
-    @DisplayName("3-b. 한투 대비율은 저장에 쓰지 않는다 — 계산값과 소수 2자리에서 일치하는지만 본다(픽스처 기준, 실응답 미대조)")
+    @DisplayName("3-b. 한투 대비율은 저장에 쓰지 않는다 — 계산값과 소수 2자리에서 일치하는지만 본다(픽스처 기준 — 실응답에는 대비율이 없어 운영에서는 비교를 건너뛴다)")
     void kisRate_onlyCompared() {
         server.expect(requestTo(startsWith(INDEX))).andRespond(withSuccess(fixture("index-daily-desc.json"), MediaType.APPLICATION_JSON));
 
