@@ -130,6 +130,32 @@ class KisLiveVerificationTest {
     }
 
     @Test
+    @Order(99)
+    @DisplayName("V2-b — 종목정보 원문의 시장 구분 후보 필드 (Q-2: KOSPI · KOSDAQ · ETF)")
+    void v2b_marketFields() {
+        // KisStockInfo는 시장 필드를 담지 않아 원문을 직접 본다. 공개 종목 정보만 찍는다(키 · 토큰 없음)
+        line("\n## V2-b 종목정보 시장 구분 후보 필드 (search-stock-info 원문)");
+        java.util.regex.Pattern candidate = java.util.regex.Pattern.compile("(?i).*(mket|mrkt|excg|kospi|kosdaq|ksdq|idx|lstg_dt|stck_kind|std_pdno).*");
+        for (String t : List.of("005930", "086520", "069500", "122630")) {
+            JsonNode body = directGet("/uapi/domestic-stock/v1/quotations/search-stock-info?PRDT_TYPE_CD={p}&PDNO={t}",
+                    Map.of("p", "300", "t", t), "CTPF1002R");
+            JsonNode output = body.path("output");
+            line("\n### " + t + " " + output.path("prdt_abrv_name").asText() + " (rt_cd=" + body.path("rt_cd").asText()
+                    + ", msg_cd=" + body.path("msg_cd").asText() + ")");
+            line("| 필드 | 값 |\n|---|---|");
+            int before = REPORT.length();
+            output.fieldNames().forEachRemaining(name -> {
+                if (candidate.matcher(name).matches()) {
+                    line("| " + name + " | " + output.path(name).asText() + " |");
+                }
+            });
+            if (REPORT.length() == before) {
+                line("| (시장 필드) | 없음 |");
+            }
+        }
+    }
+
+    @Test
     @Order(3)
     @DisplayName("V4 · V5 — 최신 거래일 행 기록 (16:00 이후 · 다음 날 · 주말에 각각 실행해 비교)")
     void v4v5_latestRows() throws IOException {
