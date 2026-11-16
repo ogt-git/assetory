@@ -362,7 +362,7 @@ class DemoScenarioTest {
             List<DemoScenario.DemoArticle> list = SCENARIO.articles();
 
             assertThat(list).allSatisfy(a -> {
-                assertThat(a.query()).isEqualTo(name);
+                assertThat(a.query()).isEqualTo(DemoScenario.RECENT_SURGE_TICKER); // 수집기는 종목코드로 검색한다(B0 N4)
                 assertThat(within(a.pubDate().toLocalDate(), date)).isTrue();
             });
             java.time.LocalTime close = java.time.LocalTime.of(15, 30);
@@ -370,7 +370,7 @@ class DemoScenarioTest {
             assertThat(list).anyMatch(a -> a.pubDate().toLocalDate().equals(date) && a.pubDate().toLocalTime().isBefore(close));
             assertThat(list).filteredOn(a -> !a.title().replaceAll("<[^>]*>", "").contains(name)).hasSize(1);
             assertThat(list.stream().map(DemoScenario.DemoArticle::originallink).distinct().count()).isEqualTo(list.size() - 1);
-            assertThat(SCENARIO.expectedNewsCount()).isEqualTo(list.size() - 2); // 제목 필터 1건 · 중복 1건 제외
+            assertThat(SCENARIO.expectedNewsCount()).isEqualTo(list.size() - 1); // 중복 1건만 제외(제목 필터 없음)
         }
 
         @Test

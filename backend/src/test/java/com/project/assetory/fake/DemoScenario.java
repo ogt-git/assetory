@@ -100,7 +100,7 @@ public final class DemoScenario {
     /** 데모 공시 1건 — 가짜 DART에 등록한다. type = pblntf_ty */
     public record DemoDisclosure(String ticker, String type, String receiptNo, String reportName, LocalDate receiptDate) {}
 
-    /** 데모 기사 1건 — 가짜 네이버에 query(종목명)로 등록한다 */
+    /** 데모 기사 1건 — 가짜 네이버에 query(종목코드)로 등록한다 */
     public record DemoArticle(String query, String title, String originallink, String link, String description,
                               java.time.ZonedDateTime pubDate) {}
 
@@ -254,9 +254,9 @@ public final class DemoScenario {
         return CORP_CODES;
     }
 
-    /** 5평일 전 이벤트에 저장될 뉴스 건수 — 기사 5건 중 제목에 종목명 없는 1건 · 같은 원문 URL 1건이 빠진다 */
+    /** 5평일 전 이벤트에 저장될 뉴스 건수 — 기사 5건 중 같은 원문 URL 1건만 빠진다(제목 필터 없음, B0 N4) */
     public int expectedNewsCount() {
-        return 3;
+        return 4;
     }
 
     // ---------- 계정 ----------
@@ -513,24 +513,25 @@ public final class DemoScenario {
     }
 
     /**
-     * 5평일 전 이벤트 기사 5건(종목명으로 검색) — 장중 1 · 장 마감 후 1(FR-CA-08 구분) · 제목에 종목명 없는 1(제목 필터)
+     * 5평일 전 이벤트 기사 5건(종목코드로 검색) — 장중 1 · 장 마감 후 1(FR-CA-08 구분) · 제목에 종목명 없는 업종 기사 1(남는다)
      * · 같은 원문 URL 1(중복 제거) · 전날 1. 45 · 200평일 전은 기사 없음(뉴스 보관 기한이 지난 이벤트). 제목 · 링크는 지어낸 더미 값
      */
     private List<DemoArticle> buildArticles() {
         LocalDate d = recentSurgeDate();
         String name = stockName(RECENT_SURGE_TICKER);
+        String q = RECENT_SURGE_TICKER;
         String press = "https://news.demo.example/a/";
         String portal = "https://n.news.naver.com/demo/";
         return List.of(
-                new DemoArticle(name, "<b>" + name + "</b> 장중 강세… 데모 기사", press + "1001", portal + "1001",
+                new DemoArticle(q, "<b>" + name + "</b> 장중 강세… 데모 기사", press + "1001", portal + "1001",
                         "데모 요약: <b>" + name + "</b> 장중 거래량 증가", at(d, 10, 30)),
-                new DemoArticle(name, "<b>" + name + "</b>, 장 마감 후 &quot;데모&quot; 보도", press + "1002", portal + "1002",
+                new DemoArticle(q, "<b>" + name + "</b>, 장 마감 후 &quot;데모&quot; 보도", press + "1002", portal + "1002",
                         "데모 요약: 장 마감 뒤 나온 기사", at(d, 16, 10)),
-                new DemoArticle(name, "반도체 업종 데모 동향", press + "1003", portal + "1003",
+                new DemoArticle(q, "반도체 업종 데모 동향", press + "1003", portal + "1003",
                         "데모 요약: <b>" + name + "</b> 등 업종 전반", at(d, 11, 0)),
-                new DemoArticle(name, "<b>" + name + "</b> 장중 강세… 데모 기사(재전송)", press + "1001", portal + "1004",
+                new DemoArticle(q, "<b>" + name + "</b> 장중 강세… 데모 기사(재전송)", press + "1001", portal + "1004",
                         "같은 원문을 다시 보낸 경우", at(d, 10, 35)),
-                new DemoArticle(name, "<b>" + name + "</b> 전일 데모 기사", press + "1005", portal + "1005",
+                new DemoArticle(q, "<b>" + name + "</b> 전일 데모 기사", press + "1005", portal + "1005",
                         "데모 요약: 전날 기사", at(d.minusDays(1), 14, 0)));
     }
 
