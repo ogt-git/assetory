@@ -93,11 +93,11 @@ class EvidenceCollectorsIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("2. 공시 + 뉴스 → COLLECTING, 두 유형 행 저장 · 뉴스는 기간 시작일로 검색 · 원문 그대로 · 제목에 종목명 없는 기사 제외")
+    @DisplayName("2. 공시 + 뉴스 → COLLECTING, 두 유형 행 저장 · 뉴스는 종목코드 · 기간 시작일로 검색 · 원문 그대로 · 제목에 종목명 없는 기사도 저장(B0 N4)")
     void both_collecting() {
         StockEventAnalysis analysis = newAnalysis();
         disclosures(List.of(disclosure("20261105900001", "주요사항보고서(자기주식취득결정)")));
-        when(naverNewsApiClient.fetchSince(STOCK_NAME, DATE.minusDays(1))).thenReturn(new NaverNewsPages(List.of(
+        when(naverNewsApiClient.fetchSince(analysis.getTicker(), DATE.minusDays(1))).thenReturn(new NaverNewsPages(List.of(
                 news("<b>테스트전자</b>, 자사주 &quot;매입&quot;", "https://press.example.com/1", LocalDateTime.of(2026, 11, 5, 16, 20)),
                 news("반도체 업황", "https://press.example.com/2", LocalDateTime.of(2026, 11, 5, 10, 0)),
                 news("<b>테스트전자</b> 2주 전", "https://press.example.com/3", LocalDateTime.of(2026, 10, 22, 9, 0))), false));
@@ -109,13 +109,15 @@ class EvidenceCollectorsIntegrationTest extends IntegrationTestSupport {
         assertThat(result.runs()).extracting(EvidenceCollectResult.CollectorRun::sourceType)
                 .containsExactlyInAnyOrder(SourceType.DISCLOSURE, SourceType.NEWS);
         List<EventSource> rows = rows(analysis);
-        assertThat(rows).extracting(EventSource::getSourceType).containsExactly(SourceType.NEWS, SourceType.DISCLOSURE);
-        EventSource news = rows.get(0);
+        assertThat(rows).extracting(EventSource::getSourceType)
+                .containsExactly(SourceType.NEWS, SourceType.NEWS, SourceType.DISCLOSURE);
+        assertThat(rows.get(0).getTitle()).isEqualTo("반도체 업황");
+        EventSource news = rows.get(1);
         assertThat(news.getTitle()).isEqualTo("<b>테스트전자</b>, 자사주 &quot;매입&quot;");
         assertThat(news.getSourceName()).isEqualTo("press.example.com");
         assertThat(news.getPublishedAt()).isEqualTo(LocalDateTime.of(2026, 11, 5, 16, 20));
         assertThat(news.getExternalId()).isEqualTo("https://press.example.com/1");
-        assertThat(reload(analysis).getEvidenceCount()).isEqualTo(2);
+        assertThat(reload(analysis).getEvidenceCount()).isEqualTo(3);
     }
 
     @Test

@@ -64,7 +64,7 @@ class EvidenceE2eTest extends IntegrationTestSupport {
 
     private static final String TICKER = "999901";        // 테스트 전용 더미 종목코드
     private static final String CORP_CODE = "00999901";   // 테스트 전용 더미 고유번호
-    private static final String NAME = "테스트 전자";       // 공백 포함 — 검색어 인코딩 확인용
+    private static final String NAME = "테스트 전자";       // 테스트 전용 더미 종목명(뉴스 검색어는 종목코드)
 
     private static final FakeDartServer DART = new FakeDartServer(DART_KEY);
     private static final FakeNaverNewsServer NAVER = new FakeNaverNewsServer(NAVER_ID, NAVER_SECRET);
@@ -130,13 +130,13 @@ class EvidenceE2eTest extends IntegrationTestSupport {
 
     @Test
     @Order(2)
-    @DisplayName("1 · 5. 공시 + 뉴스 → COLLECTING, DISCLOSURE · NEWS 행, 뉴스 제목 원문 그대로 · 공백 섞인 종목명이 서버에서 원래대로 디코딩")
+    @DisplayName("1 · 5. 공시 + 뉴스 → COLLECTING, DISCLOSURE · NEWS 행, 뉴스는 종목코드로 검색 · 제목 원문 그대로 · 제목에 종목명 없는 기사도 저장")
     void disclosureAndNews_collecting() {
         LocalDate date = LocalDate.of(2026, 11, 5);
         DART.disclosure(CORP_CODE, "B", "20261105900001", "주요사항보고서(자기주식취득결정)", date);
-        NAVER.article(NAME, "<b>테스트 전자</b>, 자사주 &quot;매입&quot;", "https://press.example.com/1",
+        NAVER.article(TICKER, "<b>테스트 전자</b>, 자사주 &quot;매입&quot;", "https://press.example.com/1",
                 "https://n.news.naver.com/1", "테스트 요약", ZonedDateTime.of(2026, 11, 5, 16, 20, 0, 0, KST));
-        NAVER.article(NAME, "업종 동향", "https://press.example.com/2", "https://n.news.naver.com/2", "요약",
+        NAVER.article(TICKER, "업종 동향", "https://press.example.com/2", "https://n.news.naver.com/2", "요약",
                 ZonedDateTime.of(2026, 11, 5, 10, 0, 0, 0, KST));
         StockEventAnalysis analysis = newAnalysis(date);
 
@@ -145,11 +145,13 @@ class EvidenceE2eTest extends IntegrationTestSupport {
         assertThat(result.outcome()).isEqualTo(Outcome.COMPLETED);
         assertThat(reload(analysis).getAnalysisStatus()).isEqualTo(AnalysisStatus.COLLECTING);
         List<EventSource> rows = eventSourceRepository.findAllByAnalysisIdOrderByPublishedAt(analysis.getId());
-        assertThat(rows).extracting(EventSource::getSourceType).containsExactly(SourceType.NEWS, SourceType.DISCLOSURE);
-        assertThat(rows.get(0).getTitle()).isEqualTo("<b>테스트 전자</b>, 자사주 &quot;매입&quot;");
-        assertThat(rows.get(0).getSourceName()).isEqualTo("press.example.com");
-        assertThat(rows.get(1).getUrl()).isEqualTo("https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261105900001");
-        assertThat(NAVER.lastQuery()).isEqualTo(NAME);
+        assertThat(rows).extracting(EventSource::getSourceType)
+                .containsExactly(SourceType.NEWS, SourceType.NEWS, SourceType.DISCLOSURE);
+        assertThat(rows.get(0).getTitle()).isEqualTo("업종 동향");
+        assertThat(rows.get(1).getTitle()).isEqualTo("<b>테스트 전자</b>, 자사주 &quot;매입&quot;");
+        assertThat(rows.get(1).getSourceName()).isEqualTo("press.example.com");
+        assertThat(rows.get(2).getUrl()).isEqualTo("https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20261105900001");
+        assertThat(NAVER.lastQuery()).isEqualTo(TICKER);
         assertThat(DART.requests("list")).isEqualTo(3); // 유형 B · I · D
     }
 
@@ -159,7 +161,7 @@ class EvidenceE2eTest extends IntegrationTestSupport {
     void dartKeyError_newsOnly() {
         LocalDate date = LocalDate.of(2026, 11, 9);
         DART.mode(FakeDartServer.Mode.BAD_KEY);
-        NAVER.article(NAME, "<b>테스트 전자</b> 급등", "https://press.example.com/9", "https://n.news.naver.com/9", "요약",
+        NAVER.article(TICKER, "<b>테스트 전자</b> 급등", "https://press.example.com/9", "https://n.news.naver.com/9", "요약",
                 ZonedDateTime.of(2026, 11, 9, 11, 0, 0, 0, KST));
         StockEventAnalysis analysis = newAnalysis(date);
 

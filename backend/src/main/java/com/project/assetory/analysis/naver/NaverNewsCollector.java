@@ -17,7 +17,8 @@ import java.util.List;
  * 네이버 뉴스 근거 수집기 (FR-CA-02, B3). 키가 없어도 빈으로 등록된다 — 호출 시 실패해 분석이 PENDING으로 남는다(확정 사항 1).
  * 뉴스는 LLM 입력 대상이 아니다(SourceType.NEWS) — 원문 그대로 저장하고 표시 전용으로 쓴다(B0 A안).
  * - ETF는 수집하지 않는다
- * - 검색어 = 종목명, 제목 필터(비교용 태그 제거 · 엔티티 디코드) — TODO(01-§14 #10) B0 N4 · N5로 확정
+ * - 검색어 = 종목코드, 제목 필터 없음 (01 §14 #10, B0 N4 · N5 확정 2026-11-16) — 종목명은 일반 단어 이름(대상 · NAVER)에서
+ *   노이즈가 대부분이고 대형주는 하루 1,000건 검색 한도에 걸린다. 종목코드 기사는 실호출 26건 모두 관련(증권 · 시황 기사)
  * - 기간 [이벤트일 − days-before, 이벤트일 + days-after] KST 달력일(assetory.evidence.news). 게시 시각으로 자르지 않는다(#7)
  * - 상한에 걸려 기간 시작까지 못 내려가면 실패가 아니라 받은 것까지로 끝내고 WARN(종목 · 이벤트일 · 받은 건수만, 확정 사항 6)
  * - 한 페이지라도 실패하면 전체 실패 — 일부 근거만 돌려주지 않는다(확정 사항 7)
@@ -51,7 +52,7 @@ public class NaverNewsCollector implements EvidenceCollector {
         LocalDate to = target.eventDate().plusDays(window.daysAfter());
         NaverNewsPages pages;
         try {
-            pages = client.fetchSince(target.stockName(), from);
+            pages = client.fetchSince(target.ticker(), from);
         } catch (NaverApiException e) {
             // NaverApiException 메시지는 유형 · HTTP 상태 · errorCode뿐이라 cause로 붙여도 키가 없다
             throw new EvidenceCollectException(SourceType.NEWS, e.getErrorType().name(), e);
@@ -60,6 +61,6 @@ public class NaverNewsCollector implements EvidenceCollector {
             log.warn("[NAVER] 상한 도달 — 기간 시작까지 못 내려감 ticker={} eventDate={} received={}",
                     target.ticker(), target.eventDate(), pages.items().size());
         }
-        return NaverNewsSelector.toEvidences(pages.items(), target.stockName(), from, to);
+        return NaverNewsSelector.toEvidences(pages.items(), from, to);
     }
 }

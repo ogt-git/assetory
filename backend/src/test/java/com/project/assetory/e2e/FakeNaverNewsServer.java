@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 가짜 NAVER API HUB 뉴스 검색 서버 — 테스트 · fake 프로필 전용. 실제 NaverNewsApiClient를 HTTP 수준에서 그대로 거치게 한다.
- * 응답 형식은 B3 픽스처와 같은 문서 기준(실응답 미대조). 기사 · 언론사 · 링크는 모두 지어낸 더미 값이다.
+ * 응답 형식은 B3 픽스처와 같은 문서 기준(B0 실호출로 필드 대조 완료(2026-11-16)). 기사 · 언론사 · 링크는 모두 지어낸 더미 값이다.
  * - /search/v1/news: query(디코딩해서 매칭)별 등록 기사를 pubDate 최신순으로, start · display로 나눈다
  * - X-NCP-APIGW-API-KEY-ID · X-NCP-APIGW-API-KEY가 등록한 더미 키와 다르면 401
  * 모드: NORMAL / UNAUTHORIZED(401) / RATE_LIMIT(429) / NETWORK_DOWN(응답 없이 끊음)
@@ -67,7 +67,7 @@ public final class FakeNaverNewsServer {
         this.mode = mode;
     }
 
-    /** @param query 이 검색어로 찾았을 때 나오는 기사 (수집기는 종목명으로 검색한다) */
+    /** @param query 이 검색어로 찾았을 때 나오는 기사 (수집기는 종목코드로 검색한다, B0 N4) */
     public void article(String query, String title, String originallink, String link, String description, ZonedDateTime pubDate) {
         articles.add(new Article(query, title, originallink, link, description, pubDate));
     }
