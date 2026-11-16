@@ -421,6 +421,27 @@ class DemoScenarioTest {
         }
 
         @Test
+        @DisplayName("4-c. 소급 전용 시연(Q-4): 15평일 전 000660은 +5% 이상 · 공시 1건 · 기사 0건, 그날 데모 계정 누구도 보유하지 않고 감지 시드 대상도 아니다")
+        void backfillOnlyDemo() {
+            LocalDate date = SCENARIO.backfillOnlyDate();
+            String ticker = DemoScenario.BACKFILL_ONLY_TICKER;
+            BigDecimal change = rate(SCENARIO.prices().get(ticker).stream()
+                    .map(p -> new DemoScenario.SeriesPoint(p.date(), p.close())).toList(), date);
+
+            assertThat(change).isGreaterThanOrEqualTo(new BigDecimal("5"));
+            assertThat(SCENARIO.disclosures()).filteredOn(d -> d.ticker().equals(ticker) && within(d.receiptDate(), date)).hasSize(1);
+            assertThat(SCENARIO.articles()).noneMatch(a -> a.query().equals(ticker));
+            assertThat(SCENARIO.detectionDates()).doesNotContain(date);
+            for (DemoUser user : DemoUser.values()) {
+                SCENARIO.plan(user).days().stream().filter(d -> d.date().equals(date)).findFirst()
+                        .ifPresent(d -> {
+                            BigDecimal held = quantity(d, ticker);
+                            assertThat(held == null || held.signum() == 0).as(user + " 보유 없음").isTrue();
+                        });
+            }
+        }
+
+        @Test
         @DisplayName("5. 결정성 — 같은 기준일이면 지수 · 지표 · 공시 · 기사가 같다")
         void deterministic() {
             DemoScenario again = DemoScenario.of(BASE);

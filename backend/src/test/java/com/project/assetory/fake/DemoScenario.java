@@ -51,6 +51,11 @@ public final class DemoScenario {
     public static final String RECENT_SURGE_TICKER = "005930";
     /** Q-3 — 뉴스만 있는 급등(10평일 전): 공시 0건 · 기사 2건 → RELATED_FOUND + SUMMARY_SKIPPED(LLM 미호출) 시연 */
     public static final String NEWS_ONLY_TICKER = "035720";
+    /**
+     * Q-4 — 소급 전용 분석 시연(15평일 전 +5.5%, 공시 1건): 데모 계정 누구도 그날 보유하지 않아(demo1은 60평일 전 전량 매도)
+     * 감지 시드에는 이벤트가 없고, 화면에서 새로 연동하면(가짜 CODEF 000660 3주) 소급 → RELATED_FOUND + SUMMARY_SKIPPED
+     */
+    public static final String BACKFILL_ONLY_TICKER = "000660";
 
     private static final long SEED = 20261030L;
 
@@ -64,12 +69,14 @@ public final class DemoScenario {
     private static final int ALL_FAIL_OFFSET = 90;
     private static final int RECENT_SURGE_OFFSET = 5;
     private static final int NEWS_ONLY_OFFSET = 10;
+    private static final int BACKFILL_ONLY_OFFSET = 15;
 
     private static final BigDecimal SURGE_RATE = new BigDecimal("0.07");
     private static final BigDecimal PLUNGE_RATE = new BigDecimal("-0.08");
     private static final BigDecimal RECENT_SURGE_RATE = new BigDecimal("0.061");
     private static final BigDecimal MARKET_MOVE_RATE = new BigDecimal("-0.055");
     private static final BigDecimal NEWS_ONLY_RATE = new BigDecimal("0.058");
+    private static final BigDecimal BACKFILL_ONLY_RATE = new BigDecimal("0.055");
     // 평소 하루 변동 상한 — 급등락(±5%)은 위 이벤트 날에만 생긴다
     private static final double NORMAL_LIMIT = 0.04;
     private static final double NORMAL_SIGMA = 0.012;
@@ -232,6 +239,11 @@ public final class DemoScenario {
 
     public LocalDate newsOnlyDate() {
         return dateAt(NEWS_ONLY_OFFSET);
+    }
+
+    /** Q-4 소급 전용 시연일 — 감지 시드 대상이 아니다(detectionDates에 없음). 새 연동의 이벤트 소급이 분석을 만든다 */
+    public LocalDate backfillOnlyDate() {
+        return dateAt(BACKFILL_ONLY_OFFSET);
     }
 
     /** 급등락 감지(A6)를 돌릴 날 — 200 · 45 · 10 · 5평일 전. 근거 수집도 이 날들의 분석에 돌린다 */
@@ -466,6 +478,9 @@ public final class DemoScenario {
         if (offset == NEWS_ONLY_OFFSET && ticker.equals(NEWS_ONLY_TICKER)) {
             return NEWS_ONLY_RATE;
         }
+        if (offset == BACKFILL_ONLY_OFFSET && ticker.equals(BACKFILL_ONLY_TICKER)) {
+            return BACKFILL_ONLY_RATE;
+        }
         return BigDecimal.valueOf(normal).setScale(6, RoundingMode.HALF_UP);
     }
 
@@ -484,7 +499,8 @@ public final class DemoScenario {
                 double normal = Math.max(-INDEX_LIMIT, Math.min(INDEX_LIMIT, random.nextGaussian() * INDEX_SIGMA));
                 if (i > 0) {
                     BigDecimal rate = offset == PLUNGE_OFFSET ? INDEX_PLUNGE_RATE.get(code)
-                            : offset == SURGE_OFFSET || offset == RECENT_SURGE_OFFSET || offset == NEWS_ONLY_OFFSET ? INDEX_FLAT_RATE
+                            : offset == SURGE_OFFSET || offset == RECENT_SURGE_OFFSET || offset == NEWS_ONLY_OFFSET
+                                    || offset == BACKFILL_ONLY_OFFSET ? INDEX_FLAT_RATE
                             : BigDecimal.valueOf(normal).setScale(6, RoundingMode.HALF_UP);
                     value = value.multiply(BigDecimal.ONE.add(rate)).setScale(2, RoundingMode.HALF_UP);
                 }
@@ -519,7 +535,8 @@ public final class DemoScenario {
         return Collections.unmodifiableMap(result);
     }
 
-    // 5평일 전(005930) · 45평일 전(035720)에만 공시. 200평일 전은 근거 0건(NO_EVIDENCE 시연), 10평일 전은 뉴스만(Q-3). 보고서명은 지어낸 문구
+    // 5평일 전(005930) · 45평일 전(035720) · 15평일 전(000660, Q-4 소급 전용)에만 공시. 200평일 전은 근거 0건(NO_EVIDENCE 시연),
+    // 10평일 전은 뉴스만(Q-3). 보고서명은 지어낸 문구
     private List<DemoDisclosure> buildDisclosures() {
         LocalDate recent = recentSurgeDate();
         LocalDate plunge = plungeDate();
@@ -527,7 +544,8 @@ public final class DemoScenario {
                 disclosure(RECENT_SURGE_TICKER, "B", recent, 1, "[데모] 주요사항보고서(자기주식취득결정)"),
                 disclosure(RECENT_SURGE_TICKER, "I", recent, 2, "[데모] 기업설명회(IR) 개최"),
                 disclosure(PLUNGE_TICKER, "B", plunge, 1, "[데모] 주요사항보고서(유상증자결정)"),
-                disclosure(PLUNGE_TICKER, "I", plunge, 2, "[데모] 단일판매ㆍ공급계약 해지"));
+                disclosure(PLUNGE_TICKER, "I", plunge, 2, "[데모] 단일판매ㆍ공급계약 해지"),
+                disclosure(BACKFILL_ONLY_TICKER, "B", backfillOnlyDate(), 1, "[데모] 주요사항보고서(신규시설투자)"));
     }
 
     private static DemoDisclosure disclosure(String ticker, String type, LocalDate date, int seq, String name) {
@@ -595,7 +613,7 @@ public final class DemoScenario {
     static {
         Set<Integer> offsets = new HashSet<>(PRICE_FAIL_OFFSETS.keySet());
         for (int offset : List.of(SURGE_OFFSET, PLUNGE_OFFSET, BUY_OFFSET, SALE_OFFSET, ACCOUNT_FAIL_OFFSET, ALL_FAIL_OFFSET,
-                RECENT_SURGE_OFFSET, NEWS_ONLY_OFFSET, BASE_RATE_CUT_1, BASE_RATE_CUT_2)) {
+                RECENT_SURGE_OFFSET, NEWS_ONLY_OFFSET, BACKFILL_ONLY_OFFSET, BASE_RATE_CUT_1, BASE_RATE_CUT_2)) {
             if (!offsets.add(offset)) {
                 throw new IllegalStateException("데모 이벤트 날짜가 겹친다: " + offset);
             }
