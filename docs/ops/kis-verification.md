@@ -54,6 +54,17 @@ $env:KIS_APP_KEY = '<앱키>'; $env:KIS_APP_SECRET = '<시크릿>'; cd backend; 
 
 결론: **`scty_grp_id_cd`로 판별한다 — `EF` = ETF, `ST` = 주식.** `etf_dvsn_cd`는 주식에서도 `0`이 와서 빈 값/0 구분이 필요하므로 보조로만 쓴다. ETN(`EN`으로 추정) 등 다른 그룹 코드는 아직 확인하지 않았다.
 
+#### V2-b — 시장 구분 필드 (2026-11-16 19:22, `kisLiveTest` V2-b, Q-2 근거 상태 판정의 비교 지수)
+
+| 종목 | mket_id_cd | excg_dvsn_cd | 상장일 필드 |
+|---|---|---|---|
+| 005930 (주식, 삼성전자) | `STK` | `02` | `scts_mket_lstg_dt` |
+| 086520 (주식, 에코프로) | `KSQ` | `03` | `kosdaq_mket_lstg_dt` |
+| 069500 (ETF, KODEX 200) | `STK` | `02` | `scts_mket_lstg_dt` |
+| 122630 (ETF, KODEX 레버리지) | `STK` | `02` | `scts_mket_lstg_dt` |
+
+결론: **`mket_id_cd`로 비교 지수를 정한다 — `STK` = KOSPI, `KSQ` = KOSDAQ, 그 밖 · 빈 값은 비교하지 않는다(NULL).** ETF도 상장 시장(`STK`)을 따른다(레버리지 · 인버스 배율은 보정하지 않음, 01 §14 #13). 값에 앞뒤 공백은 없었다. 코넥스 종목 값은 확인하지 않았다. 같은 응답에 업종 코드 · 이름(`idx_bztp_*_cd(_name)`)도 있다(업종 동반 판단에는 아직 쓰지 않음).
+
 ### V3 — 거래정지 필드
 
 | 종목 | tr_stop_yn | admn_item_yn | 비고 |
