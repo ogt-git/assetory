@@ -178,7 +178,8 @@ public class DemoDataSeeder implements ApplicationRunner {
                 latestFirst[i] = new FakeKisServer.Day(p.date(), p.close());
             }
             kisServer.prices(ticker, latestFirst);
-            kisServer.stockInfo(ticker, securityType(ticker) == SecurityType.ETF ? "EF" : "ST", false);
+            // 데모 종목(005930 · 000660 · 069500 · 035720)은 모두 유가증권 상장 → STK(KOSPI와 비교, Q-2)
+            kisServer.stockInfo(ticker, securityType(ticker) == SecurityType.ETF ? "EF" : "ST", false, "STK");
         });
         tx.executeWithoutResult(s -> stockPriceRepository.saveAll(rows));
     }
