@@ -116,6 +116,36 @@ class UserMarketEventRepositoryIntegrationTest extends IntegrationTestSupport {
     }
 
     // 실시간 감지 이벤트 (테스트 전용 더미 금액)
+    @Test
+    @DisplayName("분석별 실시간 이벤트 유무 (Q-4) — 소급만 · 실시간 1건 포함 · 혼합 다건 · 이벤트 0건")
+    void liveEventExistence() {
+        User a = newUser();
+        User b = newUser();
+        User c = newUser();
+        StockEventAnalysis backfillOnly = newAnalysis(DATE, "6.1");
+        StockEventAnalysis withLive = newAnalysis(DATE, "-7.0");
+        StockEventAnalysis mixed = newAnalysis(DATE, "5.5");
+        StockEventAnalysis none = newAnalysis(DATE, "8.0");
+        eventRepository.saveAndFlush(backfilled(a, backfillOnly));
+        eventRepository.saveAndFlush(backfilled(b, backfillOnly));
+        eventRepository.saveAndFlush(live(a, withLive));
+        eventRepository.saveAndFlush(backfilled(a, mixed));
+        eventRepository.saveAndFlush(live(b, mixed));
+        eventRepository.saveAndFlush(backfilled(c, mixed));
+
+        assertThat(eventRepository.existsByAnalysisIdAndBackfilledFalse(backfillOnly.getId())).isFalse();
+        assertThat(eventRepository.existsByAnalysisId(backfillOnly.getId())).isTrue();
+        assertThat(eventRepository.existsByAnalysisIdAndBackfilledFalse(withLive.getId())).isTrue();
+        assertThat(eventRepository.existsByAnalysisIdAndBackfilledFalse(mixed.getId())).isTrue();
+        assertThat(eventRepository.existsByAnalysisIdAndBackfilledFalse(none.getId())).isFalse();
+        assertThat(eventRepository.existsByAnalysisId(none.getId())).isFalse();
+    }
+
+    private static UserMarketEvent backfilled(User user, StockEventAnalysis analysis) {
+        return UserMarketEvent.create(user, analysis, Direction.of(analysis.getChangeRate()), new BigDecimal("5"),
+                null, null, null, true);
+    }
+
     private static UserMarketEvent live(User user, StockEventAnalysis analysis) {
         return UserMarketEvent.create(user, analysis, Direction.of(analysis.getChangeRate()), new BigDecimal("5"),
                 new BigDecimal("-120000.50"), new BigDecimal("12.34"), new BigDecimal("3.2100"), false);

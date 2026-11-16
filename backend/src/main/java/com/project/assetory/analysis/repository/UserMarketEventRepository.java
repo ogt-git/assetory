@@ -14,6 +14,11 @@ public interface UserMarketEventRepository extends JpaRepository<UserMarketEvent
 
     Optional<UserMarketEvent> findByUserIdAndAnalysisId(Long userId, Long analysisId);
 
+    // 공유 분석에 실시간(소급 아닌) 사용자 이벤트가 하나라도 붙었는지 — 소급 전용 분석 판단 (Q-4). 사용자 정보는 돌려주지 않는다
+    boolean existsByAnalysisIdAndBackfilledFalse(Long analysisId);
+
+    boolean existsByAnalysisId(Long analysisId);
+
     // S-02 날짜 펼침의 이벤트 줄 (A6)
     List<UserMarketEvent> findAllByUserIdAndEventDate(Long userId, LocalDate eventDate);
 
