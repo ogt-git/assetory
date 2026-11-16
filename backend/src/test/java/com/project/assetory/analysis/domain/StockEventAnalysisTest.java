@@ -88,6 +88,21 @@ class StockEventAnalysisTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    @DisplayName("시장 구분 — 비어 있을 때만 넣고, 이미 있으면 덮어쓰지 않는다 (null은 무시)")
+    void assignMarketIndex() {
+        StockEventAnalysis analysis = pending();
+
+        analysis.assignMarketIndex(null);
+        assertThat(analysis.getMarketIndexCode()).isNull();
+
+        analysis.assignMarketIndex(com.project.assetory.market.domain.IndicatorCode.KOSDAQ);
+        assertThat(analysis.getMarketIndexCode()).isEqualTo("KOSDAQ");
+
+        analysis.assignMarketIndex(com.project.assetory.market.domain.IndicatorCode.KOSPI);
+        assertThat(analysis.getMarketIndexCode()).isEqualTo("KOSDAQ");
+    }
+
     private static StockEventAnalysis pending() {
         return StockEventAnalysis.create("000660", "테스트 종목", LocalDate.of(2026, 11, 5), new BigDecimal("-6.1"));
     }

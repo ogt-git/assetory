@@ -1,6 +1,7 @@
 package com.project.assetory.analysis.domain;
 
 import com.project.assetory.global.entity.BaseTimeEntity;
+import com.project.assetory.market.domain.IndicatorCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -56,7 +57,7 @@ public class StockEventAnalysis extends BaseTimeEntity {
     @Column(name = "change_rate", nullable = false, precision = 8, scale = 4)
     private BigDecimal changeRate;
 
-    // KOSPI / KOSDAQ — 시장 비교(FR-CA-05)는 11주차
+    // KOSPI / KOSDAQ — 근거 수집 시 한투 종목정보로 채운다(Q-2). 조회 실패 · 그 밖의 시장은 NULL
     @Column(name = "market_index_code", length = 30)
     private String marketIndexCode;
 
@@ -117,6 +118,15 @@ public class StockEventAnalysis extends BaseTimeEntity {
         }
         this.evidenceCount = evidenceCount;
         this.analysisStatus = evidenceCount == 0 ? AnalysisStatus.NO_EVIDENCE : AnalysisStatus.COLLECTING;
+    }
+
+    /**
+     * 시장 구분(비교 지수) 반영 (Q-2) — 비어 있을 때만 넣는다. 이미 값이 있으면 덮어쓰지 않고, null(조회 실패 · 그 밖의 시장)은 무시한다
+     */
+    public void assignMarketIndex(IndicatorCode marketIndex) {
+        if (marketIndexCode == null && marketIndex != null) {
+            this.marketIndexCode = marketIndex.name();
+        }
     }
 
     /**
