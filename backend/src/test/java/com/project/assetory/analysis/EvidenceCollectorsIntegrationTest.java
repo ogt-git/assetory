@@ -138,7 +138,7 @@ class EvidenceCollectorsIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("4. DART만 실패 → 뉴스만 저장, COLLECTING — B1 규칙 그대로(공시는 다시 수집되지 않는다: 배치 연결 때 결정)")
+    @DisplayName("4. DART만 실패 → 뉴스만 저장, 공시가 없어 SUMMARY_SKIPPED (Q-3) — 공시는 다시 수집되지 않는다: 배치 연결 때 결정")
     void dartFails_newsSaved_b1Limitation() {
         StockEventAnalysis analysis = newAnalysis();
         when(corpCodeCache.corpCodeOf(analysis.getTicker())).thenReturn(Optional.of(CORP_CODE));
@@ -151,7 +151,7 @@ class EvidenceCollectorsIntegrationTest extends IntegrationTestSupport {
 
         assertThat(result.outcome()).isEqualTo(Outcome.COMPLETED);
         assertThat(rows(analysis)).extracting(EventSource::getSourceType).containsExactly(SourceType.NEWS);
-        assertThat(reload(analysis).getAnalysisStatus()).isEqualTo(AnalysisStatus.COLLECTING);
+        assertThat(reload(analysis).getAnalysisStatus()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);
         // 한계 고정: 다시 불러도 PENDING이 아니라 공시를 다시 수집하지 않는다
         assertThat(service.collect(analysis.getId()).outcome()).isEqualTo(Outcome.SKIPPED_NOT_PENDING);
     }

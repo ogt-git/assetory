@@ -157,7 +157,7 @@ class EvidenceE2eTest extends IntegrationTestSupport {
 
     @Test
     @Order(3)
-    @DisplayName("2. DART 키 오류(010) → 목록 1회만 부르고 멈춤, 뉴스는 성공 → B1 규칙 그대로 COLLECTING(뉴스만)")
+    @DisplayName("2. DART 키 오류(010) → 목록 1회만 부르고 멈춤, 뉴스는 성공 → 뉴스만이라 SUMMARY_SKIPPED (Q-3)")
     void dartKeyError_newsOnly() {
         LocalDate date = LocalDate.of(2026, 11, 9);
         DART.mode(FakeDartServer.Mode.BAD_KEY);
@@ -172,7 +172,7 @@ class EvidenceE2eTest extends IntegrationTestSupport {
                 .singleElement().satisfies(r -> assertThat(r.success()).isFalse());
         assertThat(eventSourceRepository.findAllByAnalysisIdOrderByPublishedAt(analysis.getId()))
                 .extracting(EventSource::getSourceType).containsExactly(SourceType.NEWS);
-        assertThat(reload(analysis).getAnalysisStatus()).isEqualTo(AnalysisStatus.COLLECTING);
+        assertThat(reload(analysis).getAnalysisStatus()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);
     }
 
     @Test
