@@ -118,4 +118,21 @@ public class StockEventAnalysis extends BaseTimeEntity {
         this.evidenceCount = evidenceCount;
         this.analysisStatus = evidenceCount == 0 ? AnalysisStatus.NO_EVIDENCE : AnalysisStatus.COLLECTING;
     }
+
+    /**
+     * 근거 상태 판정 반영 (FR-CA-05 · 06, 01 §14 #12) — 수집이 끝난 분석(NO_EVIDENCE · COLLECTING)에서만.
+     * 지수 변동률 · 초과 변동은 시장 구분 · 지수 값이 없으면 NULL 그대로 둔다(0으로 채우지 않음, AGENTS 5-C).
+     * analysis_status · evidence_count · market_index_code(시장 구분은 Q-2 몫)는 바꾸지 않는다
+     */
+    public void applyEvidenceStatus(BigDecimal marketChangeRate, EvidenceStatusCalculator.Result result) {
+        if (analysisStatus != AnalysisStatus.NO_EVIDENCE && analysisStatus != AnalysisStatus.COLLECTING) {
+            throw new IllegalStateException("수집이 끝나지 않은 분석에는 근거 상태를 반영하지 않는다: " + analysisStatus);
+        }
+        if (result == null || result.status() == null) {
+            throw new IllegalArgumentException("판정 결과가 없다");
+        }
+        this.marketChangeRate = marketChangeRate;
+        this.excessRate = result.excessRate();
+        this.evidenceStatus = result.status();
+    }
 }
