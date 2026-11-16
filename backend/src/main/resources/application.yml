@@ -77,8 +77,7 @@ assetory:
     rate-limit:
       max-retries: ${KIS_RATE_LIMIT_MAX_RETRIES:2}
       backoff-ms: ${KIS_RATE_LIMIT_BACKOFF_MS:1000}
-    # 업종지수 코드 (FR-MK-02, inquire-daily-indexchartprice 시장 U). KOSPI 0001은 공식 예제 기준
-    # TODO(B0 K1): KOSDAQ 1001은 미확인 — kisLiveTest K1 결과(업종명)로 확인한다
+    # 업종지수 코드 (FR-MK-02, inquire-daily-indexchartprice 시장 U). B0 K1 실호출 확인(2026-11-16): 0001 = 종합, 1001 = KOSDAQ
     index-codes:
       kospi: ${ASSETORY_KIS_INDEX_CODE_KOSPI:0001}
       kosdaq: ${ASSETORY_KIS_INDEX_CODE_KOSDAQ:1001}
@@ -138,7 +137,7 @@ assetory:
     # 수집기 외부 호출 1회 연결 · 읽기 타임아웃 (NFR-PF-05). 수집기 전체 실행 시간 합은 공유 분석 락 TTL(5분)보다 작아야 한다
     call-timeout: ${ASSETORY_EVIDENCE_CALL_TIMEOUT:10s}
     # 수집 범위 — 이벤트일 기준 전 · 후 달력일. 게시 시각으로 자르지 않는다(장 마감 후 구분은 표시 단계, FR-CA-08)
-    # TODO(01-§14 #7): 임시값. B0 실호출(D4 공시 분포 · N6 게시 시각 분포)로 확정한다
+    # 01 §14 #7 확정(B0 D4 · N6, 2026-11-16): 공시 · 뉴스 모두 ±1일. 공시는 접수일(rcept_dt, 시각 없음) 기준
     disclosure:
       days-before: ${ASSETORY_EVIDENCE_DISCLOSURE_DAYS_BEFORE:1}
       days-after: ${ASSETORY_EVIDENCE_DISCLOSURE_DAYS_AFTER:1}
@@ -156,7 +155,7 @@ assetory:
     base-url: ${ASSETORY_DART_BASE_URL:https://opendart.fss.or.kr/api}
     api-key: ${DART_API_KEY:}
     # 공시 유형(pblntf_ty) — B 주요사항 · I 거래소공시 · D 지분공시. 목록 응답에 유형이 없어 유형마다 1회 호출
-    # TODO(01-§14 #11): 임시값. B0 실호출 D4(공시 유형별 분포)로 확정한다
+    # 01 §14 #11 확정(B0 D4, 2026-11-16): 샘플 이벤트 공시가 I · B · D에 몰렸다. J(공정위) · A(정기)는 제외
     disclosure-types: ${ASSETORY_DART_DISCLOSURE_TYPES:B,I,D}
     # 유형 1개당 최대 페이지(100건/페이지). 넘으면 수집기 실패 — 수집 시간이 공유 분석 락 TTL(5분)을 넘지 않게
     # 최악: 유형 3 × 2페이지 × (연결 10초 + 읽기 10초) + 고유번호(연결 10초 + 읽기 30초) = 160초 < 300초
@@ -170,6 +169,7 @@ assetory:
     client-id: ${NAVER_API_HUB_CLIENT_ID:}
     client-secret: ${NAVER_API_HUB_CLIENT_SECRET:}
     # 최신순 최대 페이지(100건/페이지). 도달하면 그때까지 받은 기사로 끝낸다(실패 아님) — 락 TTL(5분) 안에 끝나게
+    # 검색어는 종목코드(01 §14 #10). B0 실호출(2026-11-16)에서 종목코드 기사는 하루 60건 안쪽 → 3페이지면 기간 시작까지 닿는다
     max-pages: ${ASSETORY_NAVER_MAX_PAGES:3}
 
 # JWT — 서명 키는 32바이트 이상. 만료는 FR-AU-02 (AT 30분, RT 14일)

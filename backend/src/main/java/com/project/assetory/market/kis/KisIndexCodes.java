@@ -7,7 +7,7 @@ import org.springframework.validation.annotation.Validated;
 
 /**
  * 한투 업종코드 — application.yml assetory.kis.index-codes.* (B4 확정 사항 8).
- * KOSPI 0001은 공식 예제 기준, KOSDAQ 1001은 미확인 — TODO(B0 K1): kisLiveTest K1 결과로 확인한다
+ * KOSPI 0001 · KOSDAQ 1001 — B0 K1 실호출로 확인(2026-11-16, 응답 이름 종합 · KOSDAQ)
  */
 @Validated
 @ConfigurationProperties("assetory.kis.index-codes")

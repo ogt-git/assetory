@@ -15,7 +15,7 @@ import java.util.List;
  * OpenDART 설정 — application.yml assetory.dart.*. 키는 환경변수(DART_API_KEY)로만, 비어 있어도 기동되고 호출 시 실패한다.
  * 공시 목록 호출 타임아웃은 assetory.evidence.call-timeout(10초)을 쓴다.
  *
- * @param disclosureTypes 수집할 공시 유형(pblntf_ty, A~J) — 목록 응답에 유형 필드가 없어 유형마다 1회 호출. TODO(01-§14 #11) 임시값
+ * @param disclosureTypes 수집할 공시 유형(pblntf_ty, A~J) — 목록 응답에 유형 필드가 없어 유형마다 1회 호출. 01 §14 #11 B0 확정(B · I · D)
  * @param maxPages        유형 1개당 최대 페이지(100건/페이지). 넘으면 수집기 실패
  * @param corpCodeTimeout 고유번호 ZIP(수 MB) 전용 읽기 타임아웃
  */
