@@ -60,6 +60,8 @@ class EvidenceSourceLiveVerificationTest {
     private static final DateTimeFormatter BASIC = DateTimeFormatter.BASIC_ISO_DATE;
     private static final StringBuilder REPORT = new StringBuilder();
     private static final StringBuilder N4_TABLE = new StringBuilder();
+    /** N4 분류표에 키워드마다 넣는 D 당일 기사 수 */
+    private static final int N4_PER_KEYWORD = 6;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final String DART_BASE = "https://opendart.fss.or.kr/api";
@@ -394,11 +396,13 @@ class EvidenceSourceLiveVerificationTest {
             return;
         }
         line("\n기간 = D−1 00:00 ~ D+3 00:00 (KST, 달력일). '제목에 종목명' = 태그 제거한 제목에 종목명 포함. 도달 = 1,000건 안에서 기간 시작까지 내려갔는지.");
-        line("\n| 이벤트 | 키워드 | total | 기간 내 | 제목에 종목명 | 원문 URL 중복 제거 후 | 도달 |");
-        line("|---|---|---|---|---|---|---|");
+        line("\n| 이벤트 | 키워드 | total | 기간 내 | 제목에 종목명 | 원문 URL 중복 제거 후 | 도달 | D 당일 | D 당일 중 제목에 종목명 |");
+        line("|---|---|---|---|---|---|---|---|---|");
         Map<String, int[]> distribution = new LinkedHashMap<>();
         N4_TABLE.append("# N4 분류표 — 관련 여부는 사용자가 직접 표시 (O / X / ?). 분류 후 이 파일은 지운다\n\n")
-                .append("| 이벤트 | 게시 시각 | 제목 | 언론사 도메인 | 관련 |\n|---|---|---|---|---|\n");
+                .append("키워드(종목코드 · 종목명 + 주가 · 종목명)마다 D 당일(00:00 ~ 24:00) 기사에서 시간대가 고르게 최대 ")
+                .append(N4_PER_KEYWORD).append("건을 뽑는다. 같은 기사가 여러 키워드에 나올 수 있다.\n\n")
+                .append("| 이벤트 | 키워드 | 게시 시각 | 제목에 종목명 | 제목 | 언론사 도메인 | 관련 |\n|---|---|---|---|---|---|---|\n");
         for (SampleEvent s : samples) {
             ZonedDateTime from = s.date().minusDays(1).atStartOfDay(KST);
             ZonedDateTime to = s.date().plusDays(3).atStartOfDay(KST);
@@ -432,14 +436,31 @@ class EvidenceSourceLiveVerificationTest {
                     long titleHasName = inRange.stream().filter(i -> plain(i.path("title").asText()).contains(s.name())).count();
                     long distinct = inRange.stream().map(i -> i.path("originallink").asText().isBlank()
                             ? i.path("link").asText() : i.path("originallink").asText()).distinct().count();
+                    ZonedDateTime dayStart = s.date().atStartOfDay(KST);
+                    ZonedDateTime dayEnd = s.date().plusDays(1).atStartOfDay(KST);
+                    List<JsonNode> sameDay = inRange.stream().filter(i -> {
+                        ZonedDateTime p = parsePubDate(i.path("pubDate").asText());
+                        return !p.isBefore(dayStart) && p.isBefore(dayEnd);
+                    }).toList();
+                    long sameDayTitleHasName = sameDay.stream().filter(i -> plain(i.path("title").asText()).contains(s.name())).count();
                     line("| " + s.label() + " | " + keywordKind(keyword, s) + " | " + total + " | " + inRange.size() + " | "
-                            + titleHasName + " | " + distinct + " | " + (reached ? "예" : "아니오") + " |");
+                            + titleHasName + " | " + distinct + " | " + (reached ? "예" : "아니오") + " | "
+                            + sameDay.size() + " | " + sameDayTitleHasName + " |");
                     if (keyword.equals(s.name())) {
                         distribution.put(s.label(), bucket(inRange, s.date()));
-                        inRange.stream().limit(5).forEach(i -> N4_TABLE.append("| ").append(s.label()).append(" | ")
-                                .append(parsePubDate(i.path("pubDate").asText()).toLocalDateTime()).append(" | ")
-                                .append(plain(i.path("title").asText()).replace("|", "/")).append(" | ")
-                                .append(hostOf(i.path("originallink").asText())).append(" |  |\n"));
+                    }
+                    if (!keyword.endsWith(" 특징주")) {
+                        // 최신순 목록에서 같은 간격으로 뽑아 하루 전체 시간대가 섞이게 한다
+                        int n = Math.min(N4_PER_KEYWORD, sameDay.size());
+                        for (int k = 0; k < n; k++) {
+                            JsonNode i = sameDay.get(k * sameDay.size() / n);
+                            String title = plain(i.path("title").asText());
+                            N4_TABLE.append("| ").append(s.label()).append(" | ").append(keywordKind(keyword, s)).append(" | ")
+                                    .append(parsePubDate(i.path("pubDate").asText()).toLocalDateTime()).append(" | ")
+                                    .append(title.contains(s.name()) ? "예" : "아니오").append(" | ")
+                                    .append(title.replace("|", "/")).append(" | ")
+                                    .append(hostOf(i.path("originallink").asText())).append(" |  |\n");
+                        }
                     }
                 });
             }
