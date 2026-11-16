@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 가짜 DART · 네이버 · ECOS 서버 자체 (B5 Phase 1) — 운영 클라이언트 없이 HTTP로 직접 부른다.
- * 응답 형식은 B2~B4 픽스처와 같은 공식 문서 기준(실응답 미대조). 키는 모두 테스트 전용 더미 값이다
+ * 응답 형식은 B2~B4 픽스처와 같은 공식 문서 기준(B0 실호출로 필드 대조 완료(2026-11-16)). 키는 모두 테스트 전용 더미 값이다
  */
 class FakeEvidenceServersTest {
 

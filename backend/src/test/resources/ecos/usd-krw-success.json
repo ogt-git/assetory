@@ -1,5 +1,5 @@
 {
-  "_comment": "테스트 전용 더미 값 — ECOS 개발 명세서 StatisticSearch 출력값 기준, 실응답 미대조. 원/달러(731Y001/0000001) 일별. 응답 순서를 섞어 둠",
+  "_comment": "테스트 전용 더미 값 — ECOS 개발 명세서 StatisticSearch 출력값 기준, B0 실호출로 필드 대조 완료(2026-11-16). 원/달러(731Y001/0000001) 일별. 응답 순서를 섞어 둠",
   "StatisticSearch": {
     "list_total_count": 4,
     "row": [

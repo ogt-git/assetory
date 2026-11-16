@@ -12,7 +12,7 @@ import static com.project.assetory.analysis.naver.NaverFixtures.fixture;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-// 뉴스 검색 응답 해석 — 값은 API가 준 그대로 읽고, pubDate만 KST 시각으로 바꾼다. 픽스처는 문서 기준(실응답 미대조)
+// 뉴스 검색 응답 해석 — 값은 API가 준 그대로 읽고, pubDate만 KST 시각으로 바꾼다. 픽스처는 문서 기준(B0 실호출로 필드 대조 완료(2026-11-16))
 class NaverNewsParserTest {
 
     @Test

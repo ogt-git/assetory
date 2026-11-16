@@ -12,7 +12,7 @@ import static com.project.assetory.analysis.dart.DartFixtures.fixture;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-// list.json 응답 해석 — 상태 코드 분류(B2 확정 사항 8)와 필드 읽기. 픽스처는 공식 개발가이드 기준(실응답 미대조)
+// list.json 응답 해석 — 상태 코드 분류(B2 확정 사항 8)와 필드 읽기. 픽스처는 공식 개발가이드 기준(B0 실호출로 필드 대조 완료(2026-11-16))
 class DartListParserTest {
 
     @Test
