@@ -1,6 +1,7 @@
 package com.project.assetory.analysis.repository;
 
 import com.project.assetory.analysis.domain.EventSource;
+import com.project.assetory.analysis.domain.SourceType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -41,4 +42,17 @@ public interface EventSourceRepository extends JpaRepository<EventSource, Long> 
     List<EventSource> findAllByAnalysisIdOrderByPublishedAt(@Param("analysisId") Long analysisId);
 
     long countByAnalysisId(Long analysisId);
+
+    /** 분석별 근거 유형별 건수 — 근거 상태 판정(공시 · 뉴스만 관련 근거로 센다)에 쓴다. 없는 유형은 행이 없다 */
+    @Query("""
+            select e.sourceType as sourceType, count(e) as count from EventSource e
+            where e.analysis.id = :analysisId
+            group by e.sourceType""")
+    List<SourceTypeCount> countBySourceType(@Param("analysisId") Long analysisId);
+
+    interface SourceTypeCount {
+        SourceType getSourceType();
+
+        long getCount();
+    }
 }
