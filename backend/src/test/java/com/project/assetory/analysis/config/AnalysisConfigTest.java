@@ -35,6 +35,21 @@ class AnalysisConfigTest {
     }
 
     @Test
+    @DisplayName("기본값: 소급 직후 근거 수집 상한 50건 (Q-4), 환경변수로 바꿀 수 있다")
+    void backfillCollectMax() {
+        runner.run(context -> assertThat(context.getBean(AnalysisProperties.class).backfillCollectMax()).isEqualTo(50));
+        runner.withPropertyValues("ASSETORY_ANALYSIS_BACKFILL_COLLECT_MAX=7")
+                .run(context -> assertThat(context.getBean(AnalysisProperties.class).backfillCollectMax()).isEqualTo(7));
+    }
+
+    @Test
+    @DisplayName("소급 수집 상한 0 이하는 기동 실패")
+    void backfillCollectMax_rejectsZero() {
+        runner.withPropertyValues("ASSETORY_ANALYSIS_BACKFILL_COLLECT_MAX=0")
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
     @DisplayName("음수 기준은 기동 실패")
     void rejectsNegative() {
         runner.withPropertyValues("ASSETORY_ANALYSIS_MARKET_MOVE_MAX_EXCESS_RATE=-0.1")

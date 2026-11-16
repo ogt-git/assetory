@@ -132,6 +132,9 @@ assetory:
     market-move:
       # TODO(01-§14 #12) 시장 동반 기준 — 운영 데이터로 조정
       max-excess-rate: ${ASSETORY_ANALYSIS_MARKET_MOVE_MAX_EXCESS_RATE:2.0}
+    # 연동 직후 소급 분석(날짜 < 오늘 · PENDING) 중 한 번에 근거를 수집할 최대 건수 — |변동률| 큰 순 (Q-4, LLM 미호출)
+    # 분석 1건당 외부 호출 약 8회(DART · 네이버 · 한투 종목정보). 넘는 분석은 PENDING으로 남는다
+    backfill-collect-max: ${ASSETORY_ANALYSIS_BACKFILL_COLLECT_MAX:50}
   # 근거 수집 (FR-CA-01 · 02) — 수집기 구현은 B2(DART) · B3(네이버 뉴스) · B4(ECOS)
   evidence:
     # 수집기 외부 호출 1회 연결 · 읽기 타임아웃 (NFR-PF-05). 수집기 전체 실행 시간 합은 공유 분석 락 TTL(5분)보다 작아야 한다
