@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 한국은행 ECOS StatisticSearch — 거시지표(FR-MK-03) 일별 값. 요청 경로는 개발 명세서 기준(실응답 미대조, B0 E1 · E2).
+ * 한국은행 ECOS StatisticSearch — 거시지표(FR-MK-03) 일별 값. 요청 경로는 개발 명세서 기준(B0 E1 · E2 실호출로 대조 완료, 2026-11-16).
  *
  * 키 유출 방지 (AGENTS 9장, B2 DartApiClient와 같은 방식): ECOS는 키를 URL **경로**로 받는다.
  * - URI 템플릿의 경로 변수로만 요청을 만든다 — http.client.requests uri 태그 · 로그에 완성 URL이 남지 않게

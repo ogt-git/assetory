@@ -9,7 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 뉴스 검색 응답 해석 — 필드명은 NAVER API HUB 문서 기준(실응답 미대조, B0 Phase 3에서 대조).
+ * 뉴스 검색 응답 해석 — 필드명은 NAVER API HUB 문서 기준(B0 실호출로 필드 대조 완료, 2026-11-16).
  * - 2xx 본문: total · start · display · items[title, originallink, link, description, pubDate]. 값은 원문 그대로
  * - 필수 값(total · start · display · items 배열 · pubDate) 누락 · 형식 오류 → INVALID_RESPONSE.
  *   한 건이라도 해석할 수 없으면 응답 전체를 실패로 본다 — 형식이 바뀐 응답을 일부만 믿지 않는다 (B3 확정 사항 7, B2와 같은 원칙)

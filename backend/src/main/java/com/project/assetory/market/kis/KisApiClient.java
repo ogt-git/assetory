@@ -40,7 +40,7 @@ public class KisApiClient {
             + "?PRDT_TYPE_CD={productType}&PDNO={ticker}";
     private static final String STOCK_INFO_TR_ID = "CTPF1002R";
 
-    // 업종기간별시세(일 · 주 · 월 · 년) — 공식 예제(inquire_daily_indexchartprice) 기준, 실응답 미대조(B0 K1)
+    // 업종기간별시세(일 · 주 · 월 · 년) — 공식 예제(inquire_daily_indexchartprice) 기준, B0 K1 실호출로 대조 완료(2026-11-16)
     private static final String INDEX_DAILY_URI = "/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice"
             + "?FID_COND_MRKT_DIV_CODE={market}&FID_INPUT_ISCD={indexCode}&FID_INPUT_DATE_1={from}&FID_INPUT_DATE_2={to}"
             + "&FID_PERIOD_DIV_CODE={period}";

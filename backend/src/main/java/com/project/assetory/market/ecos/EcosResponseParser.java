@@ -15,7 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * StatisticSearch 응답 해석 — ECOS 개발 명세서 기준(실응답 미대조, B0 E1 · E2에서 대조).
+ * StatisticSearch 응답 해석 — ECOS 개발 명세서 기준(B0 E1 · E2 실호출로 필드 · 결과 코드 대조 완료, 2026-11-16).
  * - 정상: StatisticSearch.row[] → (TIME, DATA_VALUE). TIME은 일 주기 yyyyMMdd 원본 그대로 날짜로 — 없는 날짜를 만들지 않는다
  * - RESULT.CODE: INFO-200은 0건 정상, 그 밖은 EcosApiException(EcosErrorType.fromCode) — 원문 메시지는 버린다
  * - 행 하나라도 TIME · DATA_VALUE를 해석할 수 없거나 다른 항목코드면 INVALID_RESPONSE — 응답 전체를 실패로 본다(그 지표 전체 실패, B4 확정 사항 5)

@@ -3,7 +3,7 @@ package com.project.assetory.market.ecos;
 /**
  * ECOS 호출 실패 유형 — 응답 원문 메시지 대신 이 유형과 결과 코드만 들고 다닌다 (DartErrorType과 같은 방식).
  * retryable = 다음 실행 때 다시 수집할 만한지. 같은 실행 안에서 즉시 재시도하지는 않는다.
- * 코드표: ECOS 개발 명세서 "에러 및 정보배치" (B0 Phase 1 확인, 실응답 미대조)
+ * 코드표: ECOS 개발 명세서 "에러 및 정보배치" (B0 Phase 1 확인, Phase 3 실호출로 대조 완료 2026-11-16)
  */
 public enum EcosErrorType {
     /** INFO-100 인증키 무효 — 인증 실패는 재시도 금지 (AGENTS 9장) */

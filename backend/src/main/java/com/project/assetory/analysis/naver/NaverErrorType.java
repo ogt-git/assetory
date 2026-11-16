@@ -3,7 +3,7 @@ package com.project.assetory.analysis.naver;
 /**
  * 네이버 API HUB 뉴스 검색 실패 유형 — 응답 원문 메시지 대신 이 유형과 HTTP 상태 · errorCode만 들고 다닌다 (DartErrorType과 같은 방식).
  * retryable = 다음 실행 때 다시 수집할 만한지. 같은 실행 안에서 즉시 재시도하지는 않는다.
- * 오류 본문 형식은 공식 문서로 확인하지 못해 HTTP 상태로 분류한다(B3 확정 사항 2, 실응답 미대조)
+ * 오류 본문 형식은 공식 문서로 확인하지 못해 HTTP 상태로 분류한다(B3 확정 사항 2. B0 실호출에서 본 오류는 start 1001 요청의 HTTP 400 · errorCode SE03뿐 — 401 · 429 본문은 미대조)
  */
 public enum NaverErrorType {
     /** 401 · 403 — 인증 실패는 재시도 금지 (AGENTS 9장) */

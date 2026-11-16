@@ -13,7 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 공시검색(list.json) 응답 해석 — 필드명은 OpenDART 개발가이드 기준(실응답 미대조, B0 Phase 3에서 대조).
+ * 공시검색(list.json) 응답 해석 — 필드명은 OpenDART 개발가이드 기준(B0 실호출로 필드 대조 완료, 2026-11-16).
  * - 000: 페이지 읽기 / 013: 0건 정상
  * - 그 밖의 status: DartApiException(DartErrorType.fromStatus) — 응답 원문 메시지는 버린다
  * - 필수 값(status · list · rcept_no 14자리 · report_nm · rcept_dt) 누락 · 형식 오류: INVALID_RESPONSE.
