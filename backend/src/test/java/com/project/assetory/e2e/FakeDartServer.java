@@ -20,7 +20,7 @@ import java.util.zip.ZipOutputStream;
 
 /**
  * 가짜 OpenDART 서버 — 테스트 · fake 프로필 전용. 실제 DartApiClient · 고유번호 캐시를 HTTP 수준에서 그대로 거치게 한다.
- * 응답 형식은 B2 픽스처와 같은 개발가이드 기준(실응답 미대조). 회사 · 공시는 모두 지어낸 더미 값이다.
+ * 응답 형식은 B2 픽스처와 같은 개발가이드 기준(B0 실호출로 필드 대조 완료(2026-11-16)). 회사 · 공시는 모두 지어낸 더미 값이다.
  * - /api/list.json: corp_code · pblntf_ty · rcept_dt(bgn_de~end_de)로 걸러 page_no · page_count로 나눈다. 없으면 013
  * - /api/corpCode.xml: 등록한 회사로 CORPCODE.xml ZIP을 즉석에서 만든다(비상장 1건 포함 — stock_code 공백)
  * - crtfc_key가 등록한 더미 키와 다르면 010
@@ -164,7 +164,7 @@ public final class FakeDartServer {
     // 키 · 모드 오류 응답 — 정상이면 null
     private String error(String key) {
         if (mode == Mode.BAD_KEY || !apiKey.equals(key)) {
-            return "{\"status\":\"010\",\"message\":\"등록되지 않은 키입니다.\"}";
+            return "{\"status\":\"010\",\"message\":\"등록되지 않은 인증키입니다.\"}";
         }
         if (mode == Mode.RATE_LIMIT) {
             return "{\"status\":\"020\",\"message\":\"요청 제한을 초과하였습니다.\"}";
