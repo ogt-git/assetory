@@ -14,6 +14,7 @@ import com.project.assetory.connect.repository.ConnectedAccountRepository;
 import com.project.assetory.connect.repository.InstitutionRepository;
 import com.project.assetory.connect.repository.SyncJobRepository;
 import com.project.assetory.detection.service.StockEventBackfillService;
+import com.project.assetory.analysis.service.BackfillEvidenceService;
 import com.project.assetory.global.crypto.HashUtil;
 import com.project.assetory.market.kis.KisApiClient;
 import com.project.assetory.market.kis.KisDailyPrice;
@@ -85,6 +86,8 @@ class InitialSyncBackfillIntegrationTest extends IntegrationTestSupport {
     private final AtomicInteger backfillsDone = new AtomicInteger();
     @MockitoSpyBean StockEventBackfillService eventBackfillService;
     private final AtomicInteger eventBackfillsDone = new AtomicInteger();
+    // Q-4 소급 직후 근거 수집 — DART · 네이버는 키가 비어 있어 호출 전에 실패(외부 호출 없음), 한투 종목정보는 목(null)
+    @MockitoSpyBean BackfillEvidenceService backfillEvidenceService;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -255,6 +258,25 @@ class InitialSyncBackfillIntegrationTest extends IntegrationTestSupport {
         assertThat(jdbc.queryForObject("""
                 select count(*) from detection_events d join assets a on a.user_id = d.user_id where a.id = ?""",
                 Integer.class, connection.assetId())).isZero();
+        assertThat(backfillCompleted(connection.assetId())).isTrue();
+        // Q-4 — 이벤트 소급 뒤 같은 작업에서, 이번 소급이 다룬 분석 2건으로 근거 수집을 부른다
+        verify(backfillEvidenceService).collect(argThat(ids -> ids.size() == 2));
+    }
+
+    @Test
+    @DisplayName("Q-4: 소급 직후 근거 수집이 예외를 던져도 소급 이벤트 · 완료 표시(backfill_completed)는 그대로")
+    void evidenceCollectThrows_backfillKept() throws Exception {
+        when(kis.getDailyPrices(anyString())).thenReturn(daysWithMove());
+        countEventBackfills();
+        doThrow(new IllegalStateException("테스트 전용 근거 수집 실패")).when(backfillEvidenceService).collect(any());
+        Connection connection = createSecuritiesConnection();
+
+        publishLinked(connection.id());
+
+        awaitUntil(() -> eventBackfillsDone.get() == 1, WAIT);
+        awaitExecutorIdle();
+        verify(backfillEvidenceService).collect(any());
+        assertThat(userEvents(connection.assetId())).isEqualTo(2);
         assertThat(backfillCompleted(connection.assetId())).isTrue();
     }
 

@@ -1,5 +1,6 @@
 package com.project.assetory.connect.event;
 
+import com.project.assetory.analysis.service.BackfillEvidenceService;
 import com.project.assetory.asset.domain.Asset;
 import com.project.assetory.asset.domain.AssetType;
 import com.project.assetory.asset.repository.AssetRepository;
@@ -31,6 +32,7 @@ public class InitialSyncListener {
     private final StockPriceBackfillService backfillService;
     private final AssetRepository assetRepository;
     private final StockEventBackfillService eventBackfillService;
+    private final BackfillEvidenceService backfillEvidenceService;
 
     @Async("codefSyncExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -81,12 +83,25 @@ public class InitialSyncListener {
     // 시세 소급에 실패한 종목이 없을 때만 완료 표시(backfill_completed)를 켠다 (A5 결정 H-5)
     private void backfillEvents(Long connectedAccountId, Long assetId, BackfillResult prices) {
         boolean pricesComplete = prices.failed() == 0;
+        StockEventBackfillService.Result events;
         try {
-            int created = eventBackfillService.backfill(assetId, pricesComplete);
-            log.info("[InitialSync] 과거 이벤트 소급 완료 connectedAccountId={} 생성={} 시세실패={} 완료표시={}",
-                    connectedAccountId, created, prices.failed(), pricesComplete);
+            events = eventBackfillService.backfill(assetId, pricesComplete);
+            log.info("[InitialSync] 과거 이벤트 소급 완료 connectedAccountId={} 생성={} 분석={} 시세실패={} 완료표시={}",
+                    connectedAccountId, events.created(), events.analysisIds().size(), prices.failed(), pricesComplete);
         } catch (RuntimeException e) {
             log.warn("[InitialSync] 과거 이벤트 소급 실패 — 연동 · 수집 · 시세 결과는 유지, 완료 표시 안 함 connectedAccountId={} error={}",
+                    connectedAccountId, e.getClass().getSimpleName());
+            return;
+        }
+        collectBackfillEvidence(connectedAccountId, events);
+    }
+
+    // 소급 분석 근거 수집 (Q-4) — 이벤트 소급 트랜잭션이 커밋된 뒤, 같은 비동기 작업에서. 실패해도 소급 이벤트 · 완료 표시는 그대로
+    private void collectBackfillEvidence(Long connectedAccountId, StockEventBackfillService.Result events) {
+        try {
+            backfillEvidenceService.collect(events.analysisIds());
+        } catch (RuntimeException e) {
+            log.warn("[InitialSync] 소급 분석 근거 수집 실패 — 소급 이벤트 · 완료 표시는 유지 connectedAccountId={} error={}",
                     connectedAccountId, e.getClass().getSimpleName());
         }
     }

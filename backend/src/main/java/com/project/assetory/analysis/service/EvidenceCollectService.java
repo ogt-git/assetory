@@ -15,6 +15,7 @@ import com.project.assetory.analysis.evidence.EvidenceSanitizer;
 import com.project.assetory.analysis.evidence.EvidenceTarget;
 import com.project.assetory.analysis.repository.EventSourceRepository;
 import com.project.assetory.analysis.repository.StockEventAnalysisRepository;
+import com.project.assetory.analysis.repository.UserMarketEventRepository;
 import com.project.assetory.analysis.service.EvidenceCollectResult.CollectorRun;
 import com.project.assetory.analysis.service.EvidenceCollectResult.Outcome;
 import com.project.assetory.asset.domain.SecurityType;
@@ -27,7 +28,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -48,6 +51,7 @@ import java.util.UUID;
  * 5. 한 트랜잭션: 값 검증 → insert-if-absent 저장 → evidence_count = 저장 행 수 → 0건 NO_EVIDENCE / 1건 이상 COLLECTING
  *    → 근거 상태 판정(지수 변동률 · 초과 변동 · evidence_status, EvidenceStatusCalculator — 공시 · 뉴스만 관련 근거로 센다)
  *    → 공시가 0건인 COLLECTING(뉴스 · 거시지표만)은 SUMMARY_SKIPPED (Q-3, LLM 입력 근거 없음)
+ *    → 날짜 < 오늘이고 소급 사용자 이벤트만 붙은 COLLECTING도 SUMMARY_SKIPPED (Q-4, 소급 분석은 LLM 미호출)
  * 6. finally 락 해제 — 값이 내 UUID일 때만 (TTL이 지나 남이 잡은 락을 지우지 않는다)
  *
  * 락 1차 · DB UNIQUE (analysis_id, external_id) 2차 방어(05 §13). 공유 분석 생성(A4 · A5)은 이 락을 쓰지 않고
@@ -79,6 +83,8 @@ public class EvidenceCollectService {
     private final MacroIndicatorRepository macroIndicatorRepository;
     private final AnalysisProperties analysisProperties;
     private final StockMarketResolver stockMarketResolver;
+    private final UserMarketEventRepository userMarketEventRepository;
+    private final Clock clock;
 
     public EvidenceCollectService(StockEventAnalysisRepository analysisRepository,
                                   EventSourceRepository eventSourceRepository,
@@ -88,13 +94,17 @@ public class EvidenceCollectService {
                                   TransactionTemplate transactionTemplate,
                                   MacroIndicatorRepository macroIndicatorRepository,
                                   AnalysisProperties analysisProperties,
-                                  StockMarketResolver stockMarketResolver) {
+                                  StockMarketResolver stockMarketResolver,
+                                  UserMarketEventRepository userMarketEventRepository,
+                                  Clock clock) {
         this.analysisRepository = analysisRepository;
         this.eventSourceRepository = eventSourceRepository;
         this.holdingRepository = holdingRepository;
         this.macroIndicatorRepository = macroIndicatorRepository;
         this.analysisProperties = analysisProperties;
         this.stockMarketResolver = stockMarketResolver;
+        this.userMarketEventRepository = userMarketEventRepository;
+        this.clock = clock;
         // 등록된 수집기 빈 전부(@Order 순). 지금은 운영 구현이 0개라 빈 목록으로도 기동돼야 한다 — B2 · B3 · B4에서 추가
         this.collectors = collectors.orderedStream().toList();
         this.redisTemplate = redisTemplate;
@@ -187,7 +197,18 @@ public class EvidenceCollectService {
         if (analysis.getAnalysisStatus() == AnalysisStatus.COLLECTING && !EvidenceStatusCalculator.hasSummaryInput(counts)) {
             analysis.skipSummary();
         }
+        // Q-4 — 소급 이벤트만 붙은 과거 날짜 분석은 공시가 있어도 요약하지 않는다(연동 1회에 호출이 몰리고 사용자 한도가 바로 소진).
+        // 오늘 날짜는 같은 분석을 공유할 실시간 사용자가 생길 수 있어 제외한다. 모든 수집 경로(소급 · 배치 · 재시도)에 같게 적용된다
+        if (analysis.getAnalysisStatus() == AnalysisStatus.COLLECTING && isBackfillOnly(analysis)) {
+            analysis.skipSummary();
+        }
         return analysis.getAnalysisStatus();
+    }
+
+    private boolean isBackfillOnly(StockEventAnalysis analysis) {
+        return analysis.getEventDate().isBefore(LocalDate.now(clock))
+                && userMarketEventRepository.existsByAnalysisId(analysis.getId())
+                && !userMarketEventRepository.existsByAnalysisIdAndBackfilledFalse(analysis.getId());
     }
 
     /**
