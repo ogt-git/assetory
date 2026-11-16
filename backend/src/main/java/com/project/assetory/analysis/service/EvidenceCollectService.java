@@ -8,6 +8,7 @@ import com.project.assetory.analysis.domain.StockEventAnalysis;
 import com.project.assetory.market.domain.IndicatorCode;
 import com.project.assetory.market.domain.MacroIndicator;
 import com.project.assetory.market.repository.MacroIndicatorRepository;
+import com.project.assetory.market.service.StockMarketResolver;
 import com.project.assetory.analysis.evidence.CollectedEvidence;
 import com.project.assetory.analysis.evidence.EvidenceCollector;
 import com.project.assetory.analysis.evidence.EvidenceSanitizer;
@@ -41,6 +42,7 @@ import java.util.UUID;
  * 흐름 (B1 확정 사항 2)
  * 1. 분석 조회 → Redis 락 lock:analysis:{ticker}:{date} (SET NX EX 5분, 값 UUID — 05 §9). 못 잡으면 건너뜀
  * 2. 락을 잡은 뒤 다시 읽어 PENDING이 아니면 종료 (멱등). 수집 중에도 PENDING이다 — 동시 실행은 락이 막는다
+ *    → 시장 구분이 비어 있으면 한투 종목정보로 비교 지수를 조회한다(Q-2, 트랜잭션 밖, 실패 = 비교 지수 없음)
  * 3. supports()가 참인 수집기만 실행 — 트랜잭션 밖(외부 호출 동안 DB 커넥션을 잡지 않는다). 수집기별 예외는 잡아 실패로 기록하고 계속
  * 4. 실행한 수집기가 모두 실패 → 아무것도 바꾸지 않고 PENDING 유지(다음 실행 때 재시도). 실행한 수집기가 0개면 근거 0건으로 진행
  * 5. 한 트랜잭션: 값 검증 → insert-if-absent 저장 → evidence_count = 저장 행 수 → 0건 NO_EVIDENCE / 1건 이상 COLLECTING
@@ -75,6 +77,7 @@ public class EvidenceCollectService {
     private final TransactionTemplate transactionTemplate;
     private final MacroIndicatorRepository macroIndicatorRepository;
     private final AnalysisProperties analysisProperties;
+    private final StockMarketResolver stockMarketResolver;
 
     public EvidenceCollectService(StockEventAnalysisRepository analysisRepository,
                                   EventSourceRepository eventSourceRepository,
@@ -83,12 +86,14 @@ public class EvidenceCollectService {
                                   StringRedisTemplate redisTemplate,
                                   TransactionTemplate transactionTemplate,
                                   MacroIndicatorRepository macroIndicatorRepository,
-                                  AnalysisProperties analysisProperties) {
+                                  AnalysisProperties analysisProperties,
+                                  StockMarketResolver stockMarketResolver) {
         this.analysisRepository = analysisRepository;
         this.eventSourceRepository = eventSourceRepository;
         this.holdingRepository = holdingRepository;
         this.macroIndicatorRepository = macroIndicatorRepository;
         this.analysisProperties = analysisProperties;
+        this.stockMarketResolver = stockMarketResolver;
         // 등록된 수집기 빈 전부(@Order 순). 지금은 운영 구현이 0개라 빈 목록으로도 기동돼야 한다 — B2 · B3 · B4에서 추가
         this.collectors = collectors.orderedStream().toList();
         this.redisTemplate = redisTemplate;
@@ -122,6 +127,10 @@ public class EvidenceCollectService {
         }
         EvidenceTarget target = new EvidenceTarget(analysis.getTicker(), analysis.getStockName(), analysis.getEventDate(),
                 holdingRepository.existsByTickerAndSecurityType(analysis.getTicker(), SecurityType.ETF));
+        // 시장 구분(Q-2) — 트랜잭션 밖 외부 호출, 값이 없을 때만 분석 1건당 1회. 실패해도 수집은 계속한다(비교 지수 없음)
+        IndicatorCode marketIndex = analysis.getMarketIndexCode() == null
+                ? stockMarketResolver.resolve(analysis.getTicker()).orElse(null)
+                : null;
 
         List<CollectorRun> runs = new ArrayList<>();
         List<CollectedEvidence> collected = new ArrayList<>();
@@ -145,7 +154,7 @@ public class EvidenceCollectService {
 
         EvidenceSanitizer.Result sanitized = EvidenceSanitizer.sanitize(target.ticker(), collected);
         try {
-            AnalysisStatus status = transactionTemplate.execute(tx -> save(analysisId, sanitized.accepted()));
+            AnalysisStatus status = transactionTemplate.execute(tx -> save(analysisId, sanitized.accepted(), marketIndex));
             StockEventAnalysis saved = analysisRepository.findById(analysisId).orElseThrow();
             log.info("[Evidence] 수집 완료 analysisId={} ticker={} date={} runs={} saved={} excluded={} status={}", analysisId,
                     target.ticker(), target.eventDate(), runs, saved.getEvidenceCount(), sanitized.excluded(), status);
@@ -158,8 +167,10 @@ public class EvidenceCollectService {
         }
     }
 
-    private AnalysisStatus save(Long analysisId, List<CollectedEvidence> evidences) {
+    private AnalysisStatus save(Long analysisId, List<CollectedEvidence> evidences, IndicatorCode marketIndex) {
         StockEventAnalysis analysis = analysisRepository.findById(analysisId).orElseThrow();
+        // 판정(applyEvidenceStatus)이 market_index_code로 지수를 고르므로 그보다 먼저 넣는다. 이미 값이 있으면 그대로
+        analysis.assignMarketIndex(marketIndex);
         LocalDateTime now = LocalDateTime.now();
         for (CollectedEvidence e : evidences) {
             eventSourceRepository.insertIfAbsent(analysisId, e.type().name(), e.title(), e.sourceName(), e.publishedAt(),

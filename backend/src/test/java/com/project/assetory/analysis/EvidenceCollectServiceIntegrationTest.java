@@ -5,6 +5,10 @@ import com.project.assetory.analysis.domain.EventSource;
 import com.project.assetory.analysis.domain.EvidenceStatus;
 import com.project.assetory.market.domain.IndicatorCode;
 import com.project.assetory.market.domain.MacroIndicatorRow;
+import com.project.assetory.market.exception.KisApiException;
+import com.project.assetory.market.kis.KisApiClient;
+import com.project.assetory.market.kis.KisErrorType;
+import com.project.assetory.market.kis.KisStockInfo;
 import com.project.assetory.market.service.MacroIndicatorWriter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import com.project.assetory.analysis.domain.SourceType;
@@ -58,6 +62,9 @@ import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * 근거 수집 흐름 (B1 Phase 3) — 실제 수집기 없이 테스트 소스의 가짜 수집기 3개(공시 · 뉴스 · 거시지표)로 확인한다.
@@ -72,8 +79,11 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
     // 판정 테스트 전용 지수 날짜 — macro_indicators는 (지수, 날짜) UNIQUE라 다른 테스트와 겹치지 않는 해로 둔다
     private static final LocalDate MARKET_DATE = LocalDate.of(2037, 3, 4);
     private static final LocalDate MISSING_MARKET_DATE = LocalDate.of(2037, 3, 5);
+    private static final LocalDate KOSDAQ_DATE = LocalDate.of(2037, 3, 6);
 
     @Autowired EvidenceCollectService service;
+    // 시장 구분(Q-2) 조회 — 실제 한투를 부르지 않는다. 설정하지 않은 종목은 null 응답 → 시장 구분 없음
+    @MockitoBean KisApiClient kisApiClient;
     @Autowired MacroIndicatorWriter macroIndicatorWriter;
     @Autowired JdbcTemplate jdbcTemplate;
     @Autowired StockEventAnalysisRepository analysisRepository;
@@ -299,13 +309,12 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("11. 판정 — 시장 지수가 있으면 지수 변동률 · 초과 변동을 저장하고 근거 0건이면 기준대로 MARKET_MOVE (01 §14 #12)")
+    @DisplayName("11. 판정 — 종목정보 STK → KOSPI 지수로 지수 변동률 · 초과 변동을 저장하고 근거 0건이면 기준대로 MARKET_MOVE (01 §14 #12, Q-2)")
     void judge_withMarketIndex() {
-        // 시장 구분(Q-2)은 아직 없어 테스트에서 직접 넣는다. 지수 날짜는 다른 테스트와 겹치지 않게 따로 둔다
+        // 지수 날짜는 다른 테스트와 겹치지 않게 따로 둔다
         StockEventAnalysis analysis = newAnalysis(MARKET_DATE, "-5.5");
-        jdbcTemplate.update("UPDATE stock_event_analyses SET market_index_code = 'KOSPI' WHERE id = ?", analysis.getId());
-        macroIndicatorWriter.upsertAll(List.of(
-                new MacroIndicatorRow(IndicatorCode.KOSPI, MARKET_DATE, new BigDecimal("2400.0000"), new BigDecimal("-4.0000"))));
+        market(analysis, "STK");
+        index(IndicatorCode.KOSPI, MARKET_DATE, "-4.0000");
 
         EvidenceCollectResult result = service.collect(analysis.getId());
 
@@ -342,11 +351,12 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
     @DisplayName("13. 판정 — 시장 구분은 있는데 그날 지수 행이 없으면 NULL · NOT_FOUND (0으로 채우지 않음)")
     void judge_marketRowMissing() {
         StockEventAnalysis analysis = newAnalysis(MISSING_MARKET_DATE, "-5.5");
-        jdbcTemplate.update("UPDATE stock_event_analyses SET market_index_code = 'KOSDAQ' WHERE id = ?", analysis.getId());
+        market(analysis, "KSQ");
 
         service.collect(analysis.getId());
 
         StockEventAnalysis saved = reload(analysis);
+        assertThat(saved.getMarketIndexCode()).isEqualTo("KOSDAQ");
         assertThat(saved.getMarketChangeRate()).isNull();
         assertThat(saved.getExcessRate()).isNull();
         assertThat(saved.getEvidenceStatus()).isEqualTo(EvidenceStatus.NOT_FOUND);
@@ -356,9 +366,8 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
     @DisplayName("14. 판정 — 거시지표(MACRO)만 저장되면 근거 0건으로 판정하되 evidence_count는 저장 행 수 그대로")
     void judge_macroOnly() {
         StockEventAnalysis analysis = newAnalysis(MARKET_DATE, "-5.5");
-        jdbcTemplate.update("UPDATE stock_event_analyses SET market_index_code = 'KOSPI' WHERE id = ?", analysis.getId());
-        macroIndicatorWriter.upsertAll(List.of(
-                new MacroIndicatorRow(IndicatorCode.KOSPI, MARKET_DATE, new BigDecimal("2400.0000"), new BigDecimal("-4.0000"))));
+        market(analysis, "STK");
+        index(IndicatorCode.KOSPI, MARKET_DATE, "-4.0000");
         macro.behavior = t -> List.of(evidence(SourceType.MACRO, "macro-1"));
 
         EvidenceCollectResult result = service.collect(analysis.getId());
@@ -366,6 +375,85 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
         StockEventAnalysis saved = reload(analysis);
         assertThat(result.status()).isEqualTo(AnalysisStatus.COLLECTING);
         assertThat(saved.getEvidenceCount()).isEqualTo(1);
+        assertThat(saved.getEvidenceStatus()).isEqualTo(EvidenceStatus.MARKET_MOVE);
+    }
+
+    @Test
+    @DisplayName("15. 시장 구분 — 코스닥(KSQ) 종목은 KOSDAQ 지수와 비교한다 (같은 날 KOSPI 값을 쓰지 않는다)")
+    void kosdaqComparedWithKosdaq() {
+        StockEventAnalysis analysis = newAnalysis(KOSDAQ_DATE, "-5.5");
+        market(analysis, "KSQ");
+        index(IndicatorCode.KOSDAQ, KOSDAQ_DATE, "-4.0000");
+        index(IndicatorCode.KOSPI, KOSDAQ_DATE, "-0.5000"); // KOSPI와 비교하면 excess −5.0 → NOT_FOUND가 된다
+
+        service.collect(analysis.getId());
+
+        StockEventAnalysis saved = reload(analysis);
+        assertThat(saved.getMarketIndexCode()).isEqualTo("KOSDAQ");
+        assertThat(saved.getMarketChangeRate()).isEqualByComparingTo("-4.0000");
+        assertThat(saved.getExcessRate()).isEqualByComparingTo("-1.5000");
+        assertThat(saved.getEvidenceStatus()).isEqualTo(EvidenceStatus.MARKET_MOVE);
+    }
+
+    @Test
+    @DisplayName("16. 시장 구분 — 종목정보 조회가 실패해도 수집은 계속: 근거는 저장, 시장 · 초과 변동 NULL")
+    void marketLookupFailure_collectionContinues() {
+        StockEventAnalysis analysis = newAnalysis(MARKET_DATE, "-5.5");
+        when(kisApiClient.getStockInfo(analysis.getTicker()))
+                .thenThrow(new KisApiException(KisErrorType.API_ERROR, null));
+        disclosure.behavior = t -> List.of(evidence(SourceType.DISCLOSURE, "d-1"));
+        StockEventAnalysis empty = newAnalysis(MARKET_DATE, "-5.5");
+        when(kisApiClient.getStockInfo(empty.getTicker()))
+                .thenThrow(new KisApiException(KisErrorType.API_ERROR, null));
+
+        EvidenceCollectResult result = service.collect(analysis.getId());
+
+        StockEventAnalysis saved = reload(analysis);
+        assertThat(result.outcome()).isEqualTo(Outcome.COMPLETED);
+        assertThat(result.status()).isEqualTo(AnalysisStatus.COLLECTING);
+        assertThat(saved.getEvidenceCount()).isEqualTo(1);
+        assertThat(saved.getMarketIndexCode()).isNull();
+        assertThat(saved.getMarketChangeRate()).isNull();
+        assertThat(saved.getExcessRate()).isNull();
+        assertThat(saved.getEvidenceStatus()).isEqualTo(EvidenceStatus.RELATED_FOUND);
+
+        disclosure.reset();
+        service.collect(empty.getId());
+        StockEventAnalysis savedEmpty = reload(empty);
+        assertThat(savedEmpty.getAnalysisStatus()).isEqualTo(AnalysisStatus.NO_EVIDENCE);
+        assertThat(savedEmpty.getEvidenceStatus()).isEqualTo(EvidenceStatus.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("17. 시장 구분 — 이미 값이 있는 분석은 종목정보를 부르지 않고 덮어쓰지 않는다")
+    void marketAlreadySet_noLookup() {
+        StockEventAnalysis analysis = newAnalysis(MARKET_DATE, "-5.5");
+        // 이전 실행 등으로 값이 이미 있는 상태를 만든다
+        jdbcTemplate.update("UPDATE stock_event_analyses SET market_index_code = 'KOSPI' WHERE id = ?", analysis.getId());
+        market(analysis, "KSQ");
+        index(IndicatorCode.KOSPI, MARKET_DATE, "-4.0000");
+
+        service.collect(analysis.getId());
+
+        verify(kisApiClient, never()).getStockInfo(analysis.getTicker());
+        assertThat(reload(analysis).getMarketIndexCode()).isEqualTo("KOSPI");
+        assertThat(reload(analysis).getEvidenceStatus()).isEqualTo(EvidenceStatus.MARKET_MOVE);
+    }
+
+    @Test
+    @DisplayName("18. 시장 구분 — ETF도 상장 시장(STK)의 지수로 비교한다: 공시 · 뉴스 없이 MARKET_MOVE")
+    void etfComparedWithListedMarket() {
+        StockEventAnalysis analysis = newAnalysis(MARKET_DATE, "-5.5");
+        holding(analysis.getTicker(), SecurityType.ETF);
+        market(analysis, "STK");
+        index(IndicatorCode.KOSPI, MARKET_DATE, "-4.0000");
+
+        service.collect(analysis.getId());
+
+        StockEventAnalysis saved = reload(analysis);
+        assertThat(disclosure.calls.get()).isZero();
+        assertThat(news.calls.get()).isZero();
+        assertThat(saved.getMarketIndexCode()).isEqualTo("KOSPI");
         assertThat(saved.getEvidenceStatus()).isEqualTo(EvidenceStatus.MARKET_MOVE);
     }
 
@@ -387,6 +475,16 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
     private StockEventAnalysis newAnalysis(LocalDate date, String changeRate) {
         return analysisRepository.saveAndFlush(
                 StockEventAnalysis.create(uniqueTicker(), "테스트 종목", date, new BigDecimal(changeRate)));
+    }
+
+    /** 한투 종목정보 목 — 이 종목의 mket_id_cd (테스트 전용 더미 종목정보) */
+    private void market(StockEventAnalysis analysis, String marketIdCode) {
+        when(kisApiClient.getStockInfo(analysis.getTicker())).thenReturn(new KisStockInfo(analysis.getTicker(), "테스트 종목",
+                "ST", "0", null, "N", "N", null, marketIdCode));
+    }
+
+    private void index(IndicatorCode code, LocalDate date, String changeRate) {
+        macroIndicatorWriter.upsertAll(List.of(new MacroIndicatorRow(code, date, new BigDecimal("1000.0000"), new BigDecimal(changeRate))));
     }
 
     private StockEventAnalysis reload(StockEventAnalysis analysis) {
