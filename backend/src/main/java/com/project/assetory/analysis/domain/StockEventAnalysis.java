@@ -121,6 +121,17 @@ public class StockEventAnalysis extends BaseTimeEntity {
     }
 
     /**
+     * 요약 생략 (Q-3) — 근거는 있지만 LLM에 넣을 근거(공시)가 없는 분석(뉴스 · 거시지표만)을 COLLECTING에서 SUMMARY_SKIPPED로 확정한다.
+     * 이후 COLLECTING은 "공시가 있어 요약을 기다림"만 뜻한다. 생략 이유는 저장하지 않는다(화면이 유형별 근거 건수로 구분)
+     */
+    public void skipSummary() {
+        if (analysisStatus != AnalysisStatus.COLLECTING) {
+            throw new IllegalStateException("COLLECTING이 아닌 분석은 요약 생략으로 바꾸지 않는다: " + analysisStatus);
+        }
+        this.analysisStatus = AnalysisStatus.SUMMARY_SKIPPED;
+    }
+
+    /**
      * 시장 구분(비교 지수) 반영 (Q-2) — 비어 있을 때만 넣는다. 이미 값이 있으면 덮어쓰지 않고, null(조회 실패 · 그 밖의 시장)은 무시한다
      */
     public void assignMarketIndex(IndicatorCode marketIndex) {

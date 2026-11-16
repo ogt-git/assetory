@@ -54,6 +54,15 @@ public final class EvidenceStatusCalculator {
         return new Result(excess, marketMove ? EvidenceStatus.MARKET_MOVE : EvidenceStatus.NOT_FOUND);
     }
 
+    /**
+     * 원인 요약(LLM)에 넣을 근거가 있는가 (Q-3) — 공시(DISCLOSURE) 1건 이상일 때만.
+     * 뉴스는 약관상 AI 입력 금지(SourceType.NEWS.llmInputAllowed = false, B0 A안)이고, 거시지표(MACRO)는 llmInputAllowed지만
+     * 요약의 보조 입력일 뿐 근거가 아니다 — 거시지표만으로 요약하면 근거 없는 문장이 된다(FR-CA-07). 그래서 llmInputAllowed가 아니라 공시 건수로 본다
+     */
+    public static boolean hasSummaryInput(Map<SourceType, Long> sourceCounts) {
+        return sourceCounts != null && count(sourceCounts, SourceType.DISCLOSURE) > 0;
+    }
+
     private static long relatedCount(Map<SourceType, Long> sourceCounts) {
         if (sourceCounts == null) {
             return 0;

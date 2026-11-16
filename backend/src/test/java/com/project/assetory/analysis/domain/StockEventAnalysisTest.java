@@ -103,6 +103,35 @@ class StockEventAnalysisTest {
         assertThat(analysis.getMarketIndexCode()).isEqualTo("KOSDAQ");
     }
 
+    @Test
+    @DisplayName("요약 생략(Q-3) — COLLECTING에서만 SUMMARY_SKIPPED, 근거 건수 · 근거 상태는 그대로")
+    void skipSummary_fromCollecting() {
+        StockEventAnalysis analysis = pending();
+        analysis.completeCollection(2);
+        analysis.applyEvidenceStatus(null, new EvidenceStatusCalculator.Result(null, EvidenceStatus.RELATED_FOUND));
+
+        analysis.skipSummary();
+
+        assertThat(analysis.getAnalysisStatus()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);
+        assertThat(analysis.getEvidenceCount()).isEqualTo(2);
+        assertThat(analysis.getEvidenceStatus()).isEqualTo(EvidenceStatus.RELATED_FOUND);
+        assertThat(analysis.getAiSummary()).isNull();
+        assertThat(analysis.getAnalyzedAt()).isNull();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "[{index}] {0}에서는 거부")
+    @DisplayName("요약 생략 — COLLECTING이 아닌 상태에서 부르면 예외, 상태는 그대로")
+    @org.junit.jupiter.params.provider.EnumSource(value = AnalysisStatus.class, names = "COLLECTING",
+            mode = org.junit.jupiter.params.provider.EnumSource.Mode.EXCLUDE)
+    void skipSummary_guards(AnalysisStatus status) {
+        StockEventAnalysis analysis = pending();
+        // 테스트 전용 — 아직 전이 메서드가 없는 상태(ANALYZED · FAILED 등)를 직접 만든다
+        org.springframework.test.util.ReflectionTestUtils.setField(analysis, "analysisStatus", status);
+
+        assertThatThrownBy(analysis::skipSummary).isInstanceOf(IllegalStateException.class);
+        assertThat(analysis.getAnalysisStatus()).isEqualTo(status);
+    }
+
     private static StockEventAnalysis pending() {
         return StockEventAnalysis.create("000660", "테스트 종목", LocalDate.of(2026, 11, 5), new BigDecimal("-6.1"));
     }

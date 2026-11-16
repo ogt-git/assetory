@@ -133,6 +133,29 @@ class EvidenceStatusCalculatorTest {
     }
 
     @Test
+    @DisplayName("요약 입력(Q-3) — 공시가 1건 이상일 때만 LLM 입력 근거가 있다 (뉴스는 A안상 입력 금지, 거시지표는 보조 입력일 뿐 근거가 아니다)")
+    void hasSummaryInput() {
+        assertThat(EvidenceStatusCalculator.hasSummaryInput(Map.of(SourceType.NEWS, 2L))).isFalse();
+        assertThat(EvidenceStatusCalculator.hasSummaryInput(Map.of(SourceType.DISCLOSURE, 1L))).isTrue();
+        assertThat(EvidenceStatusCalculator.hasSummaryInput(Map.of(SourceType.DISCLOSURE, 1L, SourceType.NEWS, 3L))).isTrue();
+        assertThat(EvidenceStatusCalculator.hasSummaryInput(Map.of())).isFalse();
+        assertThat(EvidenceStatusCalculator.hasSummaryInput(Map.of(SourceType.MACRO, 2L))).isFalse();
+        assertThat(EvidenceStatusCalculator.hasSummaryInput(null)).isFalse();
+    }
+
+    @Test
+    @DisplayName("요약 입력 — 공시 건수 0 · null · 음수는 없는 것으로 본다")
+    void hasSummaryInput_zeroOrNull() {
+        Map<SourceType, Long> counts = new EnumMap<>(SourceType.class);
+        counts.put(SourceType.DISCLOSURE, 0L);
+        assertThat(EvidenceStatusCalculator.hasSummaryInput(counts)).isFalse();
+        counts.put(SourceType.DISCLOSURE, null);
+        assertThat(EvidenceStatusCalculator.hasSummaryInput(counts)).isFalse();
+        counts.put(SourceType.DISCLOSURE, -1L);
+        assertThat(EvidenceStatusCalculator.hasSummaryInput(counts)).isFalse();
+    }
+
+    @Test
     @DisplayName("종목 변동률 · 기준값이 없으면 호출부 버그 — 예외")
     void requiredArguments() {
         assertThatThrownBy(() -> EvidenceStatusCalculator.judge(null, BigDecimal.ONE, NO_EVIDENCE, DEFAULT_MAX))
