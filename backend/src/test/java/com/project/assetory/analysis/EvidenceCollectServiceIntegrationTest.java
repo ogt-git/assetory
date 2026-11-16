@@ -2,6 +2,11 @@ package com.project.assetory.analysis;
 
 import com.project.assetory.analysis.domain.AnalysisStatus;
 import com.project.assetory.analysis.domain.EventSource;
+import com.project.assetory.analysis.domain.EvidenceStatus;
+import com.project.assetory.market.domain.IndicatorCode;
+import com.project.assetory.market.domain.MacroIndicatorRow;
+import com.project.assetory.market.service.MacroIndicatorWriter;
+import org.springframework.jdbc.core.JdbcTemplate;
 import com.project.assetory.analysis.domain.SourceType;
 import com.project.assetory.analysis.domain.StockEventAnalysis;
 import com.project.assetory.analysis.evidence.CollectedEvidence;
@@ -64,8 +69,13 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
 
     private static final LocalDate DATE = LocalDate.of(2026, 11, 5);
     private static final String ACCOUNT_NUMBER = "12345678901"; // 테스트 전용 더미 계좌번호
+    // 판정 테스트 전용 지수 날짜 — macro_indicators는 (지수, 날짜) UNIQUE라 다른 테스트와 겹치지 않는 해로 둔다
+    private static final LocalDate MARKET_DATE = LocalDate.of(2037, 3, 4);
+    private static final LocalDate MISSING_MARKET_DATE = LocalDate.of(2037, 3, 5);
 
     @Autowired EvidenceCollectService service;
+    @Autowired MacroIndicatorWriter macroIndicatorWriter;
+    @Autowired JdbcTemplate jdbcTemplate;
     @Autowired StockEventAnalysisRepository analysisRepository;
     @MockitoSpyBean EventSourceRepository eventSourceRepository;
     // 운영 수집기(B2 DART · B3 네이버)는 이 테스트에서 뺀다 — 목의 supports()는 false라 실행되지 않고, 가짜 수집기 3개만 돈다
@@ -289,6 +299,77 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("11. 판정 — 시장 지수가 있으면 지수 변동률 · 초과 변동을 저장하고 근거 0건이면 기준대로 MARKET_MOVE (01 §14 #12)")
+    void judge_withMarketIndex() {
+        // 시장 구분(Q-2)은 아직 없어 테스트에서 직접 넣는다. 지수 날짜는 다른 테스트와 겹치지 않게 따로 둔다
+        StockEventAnalysis analysis = newAnalysis(MARKET_DATE, "-5.5");
+        jdbcTemplate.update("UPDATE stock_event_analyses SET market_index_code = 'KOSPI' WHERE id = ?", analysis.getId());
+        macroIndicatorWriter.upsertAll(List.of(
+                new MacroIndicatorRow(IndicatorCode.KOSPI, MARKET_DATE, new BigDecimal("2400.0000"), new BigDecimal("-4.0000"))));
+
+        EvidenceCollectResult result = service.collect(analysis.getId());
+
+        StockEventAnalysis saved = reload(analysis);
+        assertThat(result.status()).isEqualTo(AnalysisStatus.NO_EVIDENCE);
+        assertThat(saved.getMarketIndexCode()).isEqualTo("KOSPI");
+        assertThat(saved.getMarketChangeRate()).isEqualByComparingTo("-4.0000");
+        assertThat(saved.getExcessRate()).isEqualByComparingTo("-1.5000");
+        assertThat(saved.getEvidenceStatus()).isEqualTo(EvidenceStatus.MARKET_MOVE);
+    }
+
+    @Test
+    @DisplayName("12. 판정 — 시장 구분이 없으면 지수를 추측하지 않는다: 지수 변동률 · 초과 변동 NULL, 근거 0건 NOT_FOUND · 1건 RELATED_FOUND")
+    void judge_withoutMarketIndex() {
+        StockEventAnalysis empty = newAnalysis();
+        service.collect(empty.getId());
+
+        StockEventAnalysis savedEmpty = reload(empty);
+        assertThat(savedEmpty.getMarketIndexCode()).isNull();
+        assertThat(savedEmpty.getMarketChangeRate()).isNull();
+        assertThat(savedEmpty.getExcessRate()).isNull();
+        assertThat(savedEmpty.getEvidenceStatus()).isEqualTo(EvidenceStatus.NOT_FOUND);
+
+        StockEventAnalysis found = newAnalysis();
+        disclosure.behavior = t -> List.of(evidence(SourceType.DISCLOSURE, "d-1"));
+        service.collect(found.getId());
+
+        StockEventAnalysis savedFound = reload(found);
+        assertThat(savedFound.getExcessRate()).isNull();
+        assertThat(savedFound.getEvidenceStatus()).isEqualTo(EvidenceStatus.RELATED_FOUND);
+    }
+
+    @Test
+    @DisplayName("13. 판정 — 시장 구분은 있는데 그날 지수 행이 없으면 NULL · NOT_FOUND (0으로 채우지 않음)")
+    void judge_marketRowMissing() {
+        StockEventAnalysis analysis = newAnalysis(MISSING_MARKET_DATE, "-5.5");
+        jdbcTemplate.update("UPDATE stock_event_analyses SET market_index_code = 'KOSDAQ' WHERE id = ?", analysis.getId());
+
+        service.collect(analysis.getId());
+
+        StockEventAnalysis saved = reload(analysis);
+        assertThat(saved.getMarketChangeRate()).isNull();
+        assertThat(saved.getExcessRate()).isNull();
+        assertThat(saved.getEvidenceStatus()).isEqualTo(EvidenceStatus.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("14. 판정 — 거시지표(MACRO)만 저장되면 근거 0건으로 판정하되 evidence_count는 저장 행 수 그대로")
+    void judge_macroOnly() {
+        StockEventAnalysis analysis = newAnalysis(MARKET_DATE, "-5.5");
+        jdbcTemplate.update("UPDATE stock_event_analyses SET market_index_code = 'KOSPI' WHERE id = ?", analysis.getId());
+        macroIndicatorWriter.upsertAll(List.of(
+                new MacroIndicatorRow(IndicatorCode.KOSPI, MARKET_DATE, new BigDecimal("2400.0000"), new BigDecimal("-4.0000"))));
+        macro.behavior = t -> List.of(evidence(SourceType.MACRO, "macro-1"));
+
+        EvidenceCollectResult result = service.collect(analysis.getId());
+
+        StockEventAnalysis saved = reload(analysis);
+        assertThat(result.status()).isEqualTo(AnalysisStatus.COLLECTING);
+        assertThat(saved.getEvidenceCount()).isEqualTo(1);
+        assertThat(saved.getEvidenceStatus()).isEqualTo(EvidenceStatus.MARKET_MOVE);
+    }
+
+    @Test
     @DisplayName("없는 분석 id는 아무것도 하지 않는다")
     void missingAnalysis() {
         EvidenceCollectResult result = service.collect(Long.MAX_VALUE);
@@ -300,8 +381,12 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
     // ───────── 보조 ─────────
 
     private StockEventAnalysis newAnalysis() {
+        return newAnalysis(DATE, "-6.1");
+    }
+
+    private StockEventAnalysis newAnalysis(LocalDate date, String changeRate) {
         return analysisRepository.saveAndFlush(
-                StockEventAnalysis.create(uniqueTicker(), "테스트 종목", DATE, new BigDecimal("-6.1")));
+                StockEventAnalysis.create(uniqueTicker(), "테스트 종목", date, new BigDecimal(changeRate)));
     }
 
     private StockEventAnalysis reload(StockEventAnalysis analysis) {

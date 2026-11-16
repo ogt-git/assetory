@@ -1,7 +1,13 @@
 package com.project.assetory.analysis.service;
 
+import com.project.assetory.analysis.config.AnalysisProperties;
 import com.project.assetory.analysis.domain.AnalysisStatus;
+import com.project.assetory.analysis.domain.EvidenceStatusCalculator;
+import com.project.assetory.analysis.domain.SourceType;
 import com.project.assetory.analysis.domain.StockEventAnalysis;
+import com.project.assetory.market.domain.IndicatorCode;
+import com.project.assetory.market.domain.MacroIndicator;
+import com.project.assetory.market.repository.MacroIndicatorRepository;
 import com.project.assetory.analysis.evidence.CollectedEvidence;
 import com.project.assetory.analysis.evidence.EvidenceCollector;
 import com.project.assetory.analysis.evidence.EvidenceSanitizer;
@@ -19,10 +25,13 @@ import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -35,6 +44,7 @@ import java.util.UUID;
  * 3. supports()가 참인 수집기만 실행 — 트랜잭션 밖(외부 호출 동안 DB 커넥션을 잡지 않는다). 수집기별 예외는 잡아 실패로 기록하고 계속
  * 4. 실행한 수집기가 모두 실패 → 아무것도 바꾸지 않고 PENDING 유지(다음 실행 때 재시도). 실행한 수집기가 0개면 근거 0건으로 진행
  * 5. 한 트랜잭션: 값 검증 → insert-if-absent 저장 → evidence_count = 저장 행 수 → 0건 NO_EVIDENCE / 1건 이상 COLLECTING
+ *    → 근거 상태 판정(지수 변동률 · 초과 변동 · evidence_status, EvidenceStatusCalculator — 공시 · 뉴스만 관련 근거로 센다)
  * 6. finally 락 해제 — 값이 내 UUID일 때만 (TTL이 지나 남이 잡은 락을 지우지 않는다)
  *
  * 락 1차 · DB UNIQUE (analysis_id, external_id) 2차 방어(05 §13). 공유 분석 생성(A4 · A5)은 이 락을 쓰지 않고
@@ -63,16 +73,22 @@ public class EvidenceCollectService {
     private final List<EvidenceCollector> collectors;
     private final StringRedisTemplate redisTemplate;
     private final TransactionTemplate transactionTemplate;
+    private final MacroIndicatorRepository macroIndicatorRepository;
+    private final AnalysisProperties analysisProperties;
 
     public EvidenceCollectService(StockEventAnalysisRepository analysisRepository,
                                   EventSourceRepository eventSourceRepository,
                                   HoldingRepository holdingRepository,
                                   ObjectProvider<EvidenceCollector> collectors,
                                   StringRedisTemplate redisTemplate,
-                                  TransactionTemplate transactionTemplate) {
+                                  TransactionTemplate transactionTemplate,
+                                  MacroIndicatorRepository macroIndicatorRepository,
+                                  AnalysisProperties analysisProperties) {
         this.analysisRepository = analysisRepository;
         this.eventSourceRepository = eventSourceRepository;
         this.holdingRepository = holdingRepository;
+        this.macroIndicatorRepository = macroIndicatorRepository;
+        this.analysisProperties = analysisProperties;
         // 등록된 수집기 빈 전부(@Order 순). 지금은 운영 구현이 0개라 빈 목록으로도 기동돼야 한다 — B2 · B3 · B4에서 추가
         this.collectors = collectors.orderedStream().toList();
         this.redisTemplate = redisTemplate;
@@ -150,6 +166,31 @@ public class EvidenceCollectService {
                     e.url(), e.snippet(), e.relevanceRank(), e.externalId(), now);
         }
         analysis.completeCollection(Math.toIntExact(eventSourceRepository.countByAnalysisId(analysisId)));
+        applyEvidenceStatus(analysis);
         return analysis.getAnalysisStatus();
+    }
+
+    /**
+     * 근거 상태 판정 (01 §14 #12) — 수집 저장과 같은 트랜잭션. 실패하면 수집 저장까지 롤백되고 PENDING으로 남아 다음 실행 때 다시 한다.
+     * 시장 구분(market_index_code)이 없거나 KOSPI · KOSDAQ가 아니면 지수를 추측하지 않고 NULL로 판정한다
+     */
+    private void applyEvidenceStatus(StockEventAnalysis analysis) {
+        BigDecimal marketChangeRate = marketIndex(analysis.getMarketIndexCode())
+                .flatMap(code -> macroIndicatorRepository.findByIndicatorCodeAndBaseDate(code, analysis.getEventDate()))
+                .map(MacroIndicator::getChangeRate)
+                .orElse(null);
+        Map<SourceType, Long> counts = new EnumMap<>(SourceType.class);
+        for (EventSourceRepository.SourceTypeCount row : eventSourceRepository.countBySourceType(analysis.getId())) {
+            counts.put(row.getSourceType(), row.getCount());
+        }
+        EvidenceStatusCalculator.Result result = EvidenceStatusCalculator.judge(analysis.getChangeRate(), marketChangeRate,
+                counts, analysisProperties.marketMove().maxExcessRate());
+        analysis.applyEvidenceStatus(marketChangeRate, result);
+    }
+
+    private static Optional<IndicatorCode> marketIndex(String marketIndexCode) {
+        if (IndicatorCode.KOSPI.name().equals(marketIndexCode)) return Optional.of(IndicatorCode.KOSPI);
+        if (IndicatorCode.KOSDAQ.name().equals(marketIndexCode)) return Optional.of(IndicatorCode.KOSDAQ);
+        return Optional.empty();
     }
 }
