@@ -68,6 +68,8 @@ class EvidenceCollectorsIntegrationTest extends IntegrationTestSupport {
     @MockitoBean DartApiClient dartApiClient;
     @MockitoBean DartCorpCodeCache corpCodeCache;
     @MockitoBean NaverNewsApiClient naverNewsApiClient;
+    // 근거 수집이 시장 구분(Q-2)을 조회한다 — 실제 한투를 부르지 않게 막는다 (null 응답 → 시장 구분 없음)
+    @MockitoBean com.project.assetory.market.kis.KisApiClient kisApiClient;
 
     @Autowired EvidenceCollectService service;
     @Autowired StockEventAnalysisRepository analysisRepository;
