@@ -326,6 +326,23 @@ class DemoScenarioTest {
         }
 
         @Test
+        @DisplayName("3-a. 시장 동반 시연(Q-2): 급락일 069500(ETF)은 −5% 이하로 감지 대상이고, KOSPI 대비 판정이 MARKET_MOVE")
+        void marketMoveDemo() {
+            LocalDate date = SCENARIO.plungeDate();
+            BigDecimal etf = rate(SCENARIO.prices().get(DemoScenario.MARKET_MOVE_TICKER).stream()
+                    .map(p -> new DemoScenario.SeriesPoint(p.date(), p.close())).toList(), date);
+            BigDecimal kospi = rate(SCENARIO.indexes().get("KOSPI"), date);
+
+            assertThat(etf).isLessThanOrEqualTo(new BigDecimal("-5"));
+            assertThat(quantity(SCENARIO.plan(DemoUser.DEMO1).days().stream().filter(d -> d.date().equals(date)).findFirst().orElseThrow(),
+                    DemoScenario.MARKET_MOVE_TICKER)).isPositive();
+            // ETF는 공시 · 뉴스를 수집하지 않는다 → 근거 0건. 기준은 운영 기본값(2.0%p)
+            assertThat(com.project.assetory.analysis.domain.EvidenceStatusCalculator
+                    .judge(etf, kospi, java.util.Map.of(), new BigDecimal("2.0")).status())
+                    .isEqualTo(com.project.assetory.analysis.domain.EvidenceStatus.MARKET_MOVE);
+        }
+
+        @Test
         @DisplayName("3-b. 거시지표: 기준금리 · 원/달러 — 데모 기간 전체 평일, 값은 양수")
         void macroSeries() {
             for (String code : List.of("BASE_RATE", "USD_KRW")) {

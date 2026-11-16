@@ -43,6 +43,8 @@ public final class DemoScenario {
 
     public static final String SURGE_TICKER = "005930";
     public static final String PLUNGE_TICKER = "035720";
+    /** Q-2 — 급락일 시장 동반 시연: 지수를 따라가는 ETF가 KOSPI와 함께 하락(근거 0건 · 초과 변동 −1.0%p → MARKET_MOVE) */
+    public static final String MARKET_MOVE_TICKER = "069500";
     public static final String BUY_TICKER = "005930";
     public static final String SALE_TICKER = "000660";
     /** B5 — 최근 급등(5평일 전): 공시 + 뉴스가 있는 이벤트. 뉴스 보관 기한(20일) 안이라 "같은 날 보도"를 보여 줄 수 있다 */
@@ -63,6 +65,7 @@ public final class DemoScenario {
     private static final BigDecimal SURGE_RATE = new BigDecimal("0.07");
     private static final BigDecimal PLUNGE_RATE = new BigDecimal("-0.08");
     private static final BigDecimal RECENT_SURGE_RATE = new BigDecimal("0.061");
+    private static final BigDecimal MARKET_MOVE_RATE = new BigDecimal("-0.055");
     // 평소 하루 변동 상한 — 급등락(±5%)은 위 이벤트 날에만 생긴다
     private static final double NORMAL_LIMIT = 0.04;
     private static final double NORMAL_SIGMA = 0.012;
@@ -79,7 +82,8 @@ public final class DemoScenario {
 
     /** 지수 시작값 · 평소 하루 변동(±0.8% 이내) · 급락일(45평일 전) 동반 하락 */
     private static final Map<String, String> INDEX_FIRST = Map.of("KOSPI", "2500.00", "KOSDAQ", "800.00");
-    private static final Map<String, BigDecimal> INDEX_PLUNGE_RATE = Map.of("KOSPI", new BigDecimal("-0.03"), "KOSDAQ", new BigDecimal("-0.04"));
+    // KOSPI −4.5% — 같은 날 069500(−5.5%)이 시장 동반(초과 변동 −1.0%p)으로 판정되게 (Q-2)
+    private static final Map<String, BigDecimal> INDEX_PLUNGE_RATE = Map.of("KOSPI", new BigDecimal("-0.045"), "KOSDAQ", new BigDecimal("-0.04"));
     private static final double INDEX_LIMIT = 0.008;
     private static final double INDEX_SIGMA = 0.003;
     /** 급등일(200 · 5평일 전)은 지수를 거의 평탄하게 — 개별 종목 움직임으로 보이게(판정은 11주차) */
@@ -439,6 +443,9 @@ public final class DemoScenario {
         }
         if (offset == PLUNGE_OFFSET && ticker.equals(PLUNGE_TICKER)) {
             return PLUNGE_RATE;
+        }
+        if (offset == PLUNGE_OFFSET && ticker.equals(MARKET_MOVE_TICKER)) {
+            return MARKET_MOVE_RATE;
         }
         if (offset == RECENT_SURGE_OFFSET && ticker.equals(RECENT_SURGE_TICKER)) {
             return RECENT_SURGE_RATE;

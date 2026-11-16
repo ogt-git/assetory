@@ -96,10 +96,12 @@ public class DemoEvidenceSeeder {
             naverServer.article(a.query(), a.title(), a.originallink(), a.link(), a.description(), a.pubDate());
         }
         List<String> summaries = new ArrayList<>();
-        for (Map.Entry<LocalDate, String> event : Map.of(
-                scenario.surgeDate(), DemoScenario.SURGE_TICKER,
-                scenario.plungeDate(), DemoScenario.PLUNGE_TICKER,
-                scenario.recentSurgeDate(), DemoScenario.RECENT_SURGE_TICKER).entrySet()) {
+        // 급락일에는 두 종목(035720 공시 · 069500 시장 동반 — Q-2)이 있어 날짜 키 맵이 아니라 목록으로 둔다
+        for (Map.Entry<LocalDate, String> event : List.of(
+                Map.entry(scenario.surgeDate(), DemoScenario.SURGE_TICKER),
+                Map.entry(scenario.plungeDate(), DemoScenario.PLUNGE_TICKER),
+                Map.entry(scenario.plungeDate(), DemoScenario.MARKET_MOVE_TICKER),
+                Map.entry(scenario.recentSurgeDate(), DemoScenario.RECENT_SURGE_TICKER))) {
             StockEventAnalysis analysis = analysisRepository.findByTickerAndEventDate(event.getValue(), event.getKey()).orElse(null);
             if (analysis == null) {
                 log.warn("[FakeSeed] 근거 수집 대상 분석 없음 ticker={} date={} — 감지 시드를 확인", event.getValue(), event.getKey());
