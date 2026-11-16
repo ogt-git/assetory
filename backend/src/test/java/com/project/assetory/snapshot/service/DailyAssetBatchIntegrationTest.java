@@ -468,7 +468,7 @@ class DailyAssetBatchIntegrationTest extends IntegrationTestSupport {
             stockPriceRepository.save(prev);
         });
         doReturn(rows(new BigDecimal("12000"), new BigDecimal("12000")).subList(1, 2)).when(kis).getDailyPrices("111111");
-        doReturn(new KisStockInfo("111111", "정지종목", "ST", "0", null, "Y", "N", null)).when(kis).getStockInfo("111111");
+        doReturn(new KisStockInfo("111111", "정지종목", "ST", "0", null, "Y", "N", null, null)).when(kis).getStockInfo("111111");
 
         batchService.run();
 
@@ -490,7 +490,7 @@ class DailyAssetBatchIntegrationTest extends IntegrationTestSupport {
                 new KisDailyPrice(HALT_LAST.minusDays(1), new BigDecimal("11900"), BigDecimal.ZERO, "3", BigDecimal.ZERO, 10L, "00", null),
                 new KisDailyPrice(HALT_LAST.minusDays(2), new BigDecimal("11900"), BigDecimal.ZERO, "3", BigDecimal.ZERO, 10L, "00", null)))
                 .when(kis).getDailyPrices(ticker);
-        doReturn(new KisStockInfo(ticker, "정지종목", "ST", "0", null, "Y", "N", null)).when(kis).getStockInfo(ticker);
+        doReturn(new KisStockInfo(ticker, "정지종목", "ST", "0", null, "Y", "N", null, null)).when(kis).getStockInfo(ticker);
     }
 
     @Test

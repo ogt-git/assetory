@@ -138,7 +138,8 @@ public class KisApiClient {
                 optionalText(output, "etf_type_cd"),
                 optionalText(output, "tr_stop_yn"),
                 optionalText(output, "admn_item_yn"),
-                optionalText(output, "lstg_abol_dt"));
+                optionalText(output, "lstg_abol_dt"),
+                optionalText(output, "mket_id_cd"));
     }
 
     private JsonNode get(String api, String uriTemplate, String trId, Map<String, ?> uriVariables) {
