@@ -132,6 +132,23 @@ public class StockEventAnalysis extends BaseTimeEntity {
     }
 
     /**
+     * 요약 실패 (Q-7) — LLM 호출 실패 · 출력 검사 탈락(AI-3)을 COLLECTING에서 FAILED로 둔다(05 §5.1 재시도 대상, 재시도 연결은 AI-5).
+     * 요약은 저장하지 않는다(ai_summary NULL). 검사 탈락이어도 응답을 받았으면 비용이 발생했으므로 토큰은 기록한다(없으면 NULL).
+     * analyzed_at은 요약 완료(ANALYZED) 때만 채운다
+     */
+    public void fail(Integer promptTokens, Integer completionTokens) {
+        if (analysisStatus != AnalysisStatus.COLLECTING) {
+            throw new IllegalStateException("COLLECTING이 아닌 분석은 요약 실패로 바꾸지 않는다: " + analysisStatus);
+        }
+        if ((promptTokens != null && promptTokens < 0) || (completionTokens != null && completionTokens < 0)) {
+            throw new IllegalArgumentException("토큰 수는 0 이상이어야 한다");
+        }
+        this.analysisStatus = AnalysisStatus.FAILED;
+        this.llmPromptTokens = promptTokens;
+        this.llmCompletionTokens = completionTokens;
+    }
+
+    /**
      * 시장 구분(비교 지수) 반영 (Q-2) — 비어 있을 때만 넣는다. 이미 값이 있으면 덮어쓰지 않고, null(조회 실패 · 그 밖의 시장)은 무시한다
      */
     public void assignMarketIndex(IndicatorCode marketIndex) {

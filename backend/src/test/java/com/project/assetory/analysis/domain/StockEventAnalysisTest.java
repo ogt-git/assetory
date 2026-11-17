@@ -132,6 +132,53 @@ class StockEventAnalysisTest {
         assertThat(analysis.getAnalysisStatus()).isEqualTo(status);
     }
 
+    @Test
+    @DisplayName("요약 실패(Q-7) — COLLECTING에서만 FAILED, 토큰 기록(없으면 NULL) · 요약 · 분석 시각은 NULL 그대로")
+    void fail_fromCollecting() {
+        StockEventAnalysis analysis = pending();
+        analysis.completeCollection(1);
+
+        analysis.fail(120, 45);
+
+        assertThat(analysis.getAnalysisStatus()).isEqualTo(AnalysisStatus.FAILED);
+        assertThat(analysis.getLlmPromptTokens()).isEqualTo(120);
+        assertThat(analysis.getLlmCompletionTokens()).isEqualTo(45);
+        assertThat(analysis.getAiSummary()).isNull();
+        assertThat(analysis.getAnalyzedAt()).isNull();
+        assertThat(analysis.getEvidenceCount()).isEqualTo(1);
+
+        StockEventAnalysis noUsage = pending();
+        noUsage.completeCollection(1);
+        noUsage.fail(null, null);
+        assertThat(noUsage.getAnalysisStatus()).isEqualTo(AnalysisStatus.FAILED);
+        assertThat(noUsage.getLlmPromptTokens()).isNull();
+        assertThat(noUsage.getLlmCompletionTokens()).isNull();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "[{index}] {0}에서는 거부")
+    @DisplayName("요약 실패 — COLLECTING이 아닌 상태에서 부르면 예외, 상태는 그대로")
+    @org.junit.jupiter.params.provider.EnumSource(value = AnalysisStatus.class, names = "COLLECTING",
+            mode = org.junit.jupiter.params.provider.EnumSource.Mode.EXCLUDE)
+    void fail_guards(AnalysisStatus status) {
+        StockEventAnalysis analysis = pending();
+        // 테스트 전용 — 전이 메서드가 없는 상태(ANALYZED 등)를 직접 만든다
+        org.springframework.test.util.ReflectionTestUtils.setField(analysis, "analysisStatus", status);
+
+        assertThatThrownBy(() -> analysis.fail(1, 1)).isInstanceOf(IllegalStateException.class);
+        assertThat(analysis.getAnalysisStatus()).isEqualTo(status);
+    }
+
+    @Test
+    @DisplayName("요약 실패 — 음수 토큰은 거부, 상태는 그대로")
+    void fail_negativeTokens() {
+        StockEventAnalysis analysis = pending();
+        analysis.completeCollection(1);
+
+        assertThatThrownBy(() -> analysis.fail(-1, 0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> analysis.fail(0, -1)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(analysis.getAnalysisStatus()).isEqualTo(AnalysisStatus.COLLECTING);
+    }
+
     private static StockEventAnalysis pending() {
         return StockEventAnalysis.create("000660", "테스트 종목", LocalDate.of(2026, 11, 5), new BigDecimal("-6.1"));
     }
