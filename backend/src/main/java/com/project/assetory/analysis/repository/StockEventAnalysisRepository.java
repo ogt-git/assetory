@@ -1,6 +1,8 @@
 package com.project.assetory.analysis.repository;
 
+import com.project.assetory.analysis.domain.AnalysisStatus;
 import com.project.assetory.analysis.domain.StockEventAnalysis;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -9,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 // 공유 데이터(사용자 무관) — 사용자에게 보여줄 때는 user_market_events(소유자 기준)를 거쳐 들어간다
@@ -31,6 +34,16 @@ public interface StockEventAnalysisRepository extends JpaRepository<StockEventAn
     int insertPendingIfAbsent(@Param("ticker") String ticker, @Param("stockName") String stockName,
                               @Param("eventDate") LocalDate eventDate, @Param("changeRate") BigDecimal changeRate,
                               @Param("now") LocalDateTime now);
+
+    /**
+     * 재시도 대상 (Q-6, ANL-7) — 상태 · created_at ≥ since, |변동률| 큰 순 → created_at 오래된 순 → id. 인덱스 (analysis_status, created_at)로
+     * 범위를 좁힌 뒤 정렬한다(ABS 정렬은 인덱스를 쓰지 못하지만 창 안 행 수가 작다). created_at은 업서트로 바뀌지 않는다
+     */
+    @Query("""
+            select a from StockEventAnalysis a
+            where a.analysisStatus = :status and a.createdAt >= :since
+            order by abs(a.changeRate) desc, a.createdAt, a.id""")
+    List<StockEventAnalysis> findRetryTargets(@Param("status") AnalysisStatus status, @Param("since") LocalDateTime since, Limit limit);
 
     /**
      * 있으면 그대로 재사용(값 · 상태 불변), 없으면 PENDING 업서트 뒤 다시 읽는다 (A4 결정 E-5) — 실시간 감지(A4) · 소급(A5) 공용.
