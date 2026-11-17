@@ -21,6 +21,10 @@ assetory:
     # 뉴스 보관 기한 삭제 스케줄 끔 — 테스트는 서비스를 직접 부른다
     news-retention:
       enabled: false
+  analysis:
+    # PENDING 근거 재수집 스케줄 끔 — 테스트는 EvidenceRetryService를 직접 부른다
+    retry:
+      enabled: false
 
 jwt:
   secret: test-only-jwt-secret-not-for-real-use-0123456789

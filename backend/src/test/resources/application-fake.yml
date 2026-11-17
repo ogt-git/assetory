@@ -32,6 +32,10 @@ assetory:
     # 뉴스 보관 기한 삭제 스케줄 끔 — 매번 새 DB라 지울 것이 없다
     news-retention:
       enabled: false
+  analysis:
+    # PENDING 근거 재수집 스케줄 끔 — 일일 배치 설정을 따라 이미 꺼지지만 명시한다
+    retry:
+      enabled: false
   # 근거 · 지표 외부 API(B5) — base-url은 FakeEvidenceConfig가 가짜 서버 주소로 바꾼다. 키는 fake 전용 더미 값(가짜 서버가 이 값을 기대한다)
   dart:
     api-key: fake-only-dart-api-key
