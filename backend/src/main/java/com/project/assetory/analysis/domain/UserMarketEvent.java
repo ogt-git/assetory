@@ -97,7 +97,8 @@ public class UserMarketEvent extends BaseTimeEntity {
         event.positionRatio = positionRatio;
         event.profitLossRate = profitLossRate;
         event.backfilled = backfilled;
-        event.summaryProvided = false;
+        // 요약이 이미 있는 분석(ANALYZED — D5)에 나중에 생긴 이벤트는 처음부터 제공됨 (Q-8 D3-②). 요약이 생기는 순간의 반영은 일괄 갱신(ANL-6)
+        event.summaryProvided = analysis.getAnalysisStatus() == AnalysisStatus.ANALYZED;
         event.notifyStatus = NotifyStatus.NONE;
         return event;
     }

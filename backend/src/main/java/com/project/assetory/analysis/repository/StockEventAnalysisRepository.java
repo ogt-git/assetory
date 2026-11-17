@@ -2,8 +2,10 @@ package com.project.assetory.analysis.repository;
 
 import com.project.assetory.analysis.domain.AnalysisStatus;
 import com.project.assetory.analysis.domain.StockEventAnalysis;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -46,13 +48,25 @@ public interface StockEventAnalysisRepository extends JpaRepository<StockEventAn
     List<StockEventAnalysis> findRetryTargets(@Param("status") AnalysisStatus status, @Param("since") LocalDateTime since, Limit limit);
 
     /**
+     * 공유 락 읽기 (Q-8 d) — MySQL FOR SHARE. REPEATABLE READ의 스냅샷이 아니라 최신 커밋 상태를 읽고, 호출자 트랜잭션이 끝날 때까지
+     * 행에 공유 락을 잡는다. 그동안 다른 트랜잭션의 상태 UPDATE(예: 요약 완료 ANALYZED)는 이 트랜잭션이 커밋할 때까지 기다린다
+     */
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select a from StockEventAnalysis a where a.ticker = :ticker and a.eventDate = :eventDate")
+    Optional<StockEventAnalysis> findForShareByTickerAndEventDate(@Param("ticker") String ticker,
+                                                                  @Param("eventDate") LocalDate eventDate);
+
+    /**
      * 있으면 그대로 재사용(값 · 상태 불변), 없으면 PENDING 업서트 뒤 다시 읽는다 (A4 결정 E-5) — 실시간 감지(A4) · 소급(A5) 공용.
-     * 업서트가 @Modifying이라 호출자 트랜잭션 안에서 불러야 한다
+     * 업서트 · 공유 락이 있어 호출자 트랜잭션 안에서 불러야 한다.
+     * 공유 락으로 읽는 이유 (Q-8 d): 이 분석으로 만드는 사용자 이벤트의 summary_provided가 최신 상태(ANALYZED)로 정해지고,
+     * 그 사이 요약이 끝나도 요약 서비스(AI-5)의 ANALYZED UPDATE가 이 트랜잭션 커밋을 기다린다 → AI-5는 ANALYZED UPDATE 뒤
+     * 같은 트랜잭션에서 UserMarketEventRepository.markSummaryProvided를 불러 이 이벤트까지 true로 만든다(순서를 바꾸지 않는다)
      */
     default StockEventAnalysis findOrCreatePending(String ticker, String stockName, LocalDate eventDate, BigDecimal changeRate) {
-        return findByTickerAndEventDate(ticker, eventDate).orElseGet(() -> {
+        return findForShareByTickerAndEventDate(ticker, eventDate).orElseGet(() -> {
             insertPendingIfAbsent(ticker, stockName, eventDate, changeRate, LocalDateTime.now());
-            return findByTickerAndEventDate(ticker, eventDate).orElseThrow();
+            return findForShareByTickerAndEventDate(ticker, eventDate).orElseThrow();
         });
     }
 }
