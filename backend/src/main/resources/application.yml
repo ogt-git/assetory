@@ -5,6 +5,12 @@ spring:
   profiles:
     default: local
 
+  # 스케줄러 스레드 3개 — 근거 재시도(30분마다)가 길어져도 16:00 일일 배치 · 07:30 보정이 밀리지 않는다 (Q-6)
+  task:
+    scheduling:
+      pool:
+        size: 3
+
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
