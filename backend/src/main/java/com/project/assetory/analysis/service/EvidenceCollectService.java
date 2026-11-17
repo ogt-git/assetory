@@ -4,6 +4,7 @@ import com.project.assetory.analysis.config.AnalysisProperties;
 import com.project.assetory.analysis.domain.AnalysisStatus;
 import com.project.assetory.analysis.domain.EvidenceStatusCalculator;
 import com.project.assetory.analysis.domain.SourceType;
+import com.project.assetory.analysis.exception.EvidenceCollectException;
 import com.project.assetory.analysis.domain.StockEventAnalysis;
 import com.project.assetory.market.domain.IndicatorCode;
 import com.project.assetory.market.domain.MacroIndicator;
@@ -47,7 +48,8 @@ import java.util.UUID;
  * 2. 락을 잡은 뒤 다시 읽어 PENDING이 아니면 종료 (멱등). 수집 중에도 PENDING이다 — 동시 실행은 락이 막는다
  *    → 시장 구분이 비어 있으면 한투 종목정보로 비교 지수를 조회한다(Q-2, 트랜잭션 밖, 실패 = 비교 지수 없음)
  * 3. supports()가 참인 수집기만 실행 — 트랜잭션 밖(외부 호출 동안 DB 커넥션을 잡지 않는다). 수집기별 예외는 잡아 실패로 기록하고 계속
- * 4. 실행한 수집기가 모두 실패 → 아무것도 바꾸지 않고 PENDING 유지(다음 실행 때 재시도). 실행한 수집기가 0개면 근거 0건으로 진행
+ * 4. 실행한 수집기가 모두 실패 → 아무것도 바꾸지 않고 PENDING 유지(다음 실행 때 재시도). 실행한 수집기가 0개면 근거 0건으로 진행.
+ *    공시 수집기만 재시도 가능한 오류로 실패 → 다른 근거 · 시장 구분은 저장하고 PENDING 유지(Q-6 D2, 재시도 스케줄러가 다시 수집)
  * 5. 한 트랜잭션: 값 검증 → insert-if-absent 저장 → evidence_count = 저장 행 수 → 0건 NO_EVIDENCE / 1건 이상 COLLECTING
  *    → 근거 상태 판정(지수 변동률 · 초과 변동 · evidence_status, EvidenceStatusCalculator — 공시 · 뉴스만 관련 근거로 센다)
  *    → 공시가 0건인 COLLECTING(뉴스 · 거시지표만)은 SUMMARY_SKIPPED (Q-3, LLM 입력 근거 없음)
@@ -151,9 +153,11 @@ public class EvidenceCollectService {
                 List<CollectedEvidence> result = collector.collect(target);
                 int size = result == null ? 0 : result.size();
                 if (result != null) collected.addAll(result);
-                runs.add(new CollectorRun(collector.sourceType(), true, size));
+                runs.add(new CollectorRun(collector.sourceType(), true, size, false));
             } catch (RuntimeException e) {
-                runs.add(new CollectorRun(collector.sourceType(), false, 0));
+                // 원인을 모르는 예외는 재시도 가능으로 본다(일시 오류일 수 있음)
+                boolean retryable = !(e instanceof EvidenceCollectException collectException) || collectException.isRetryable();
+                runs.add(new CollectorRun(collector.sourceType(), false, 0, retryable));
                 log.warn("[Evidence] 수집기 실패 analysisId={} ticker={} date={} type={} error={}", analysisId,
                         target.ticker(), target.eventDate(), collector.sourceType(), e.getClass().getSimpleName());
             }
@@ -163,10 +167,18 @@ public class EvidenceCollectService {
             return new EvidenceCollectResult(Outcome.ALL_FAILED, List.copyOf(runs), 0, 0, AnalysisStatus.PENDING);
         }
 
+        // Q-6 D2 — 공시 수집기가 재시도 가능한 오류로 실패했으면 다른 근거는 저장하되 수집을 끝내지 않는다(PENDING → 재시도 대상).
+        // 다시 해도 같은 실패(키 오류 등)는 지금처럼 완료 처리한다. 공시 수집기를 돌리지 않은 분석(ETF)은 해당 없음
+        boolean disclosureRetry = runs.stream().anyMatch(r -> r.sourceType() == SourceType.DISCLOSURE && !r.success() && r.retryable());
         EvidenceSanitizer.Result sanitized = EvidenceSanitizer.sanitize(target.ticker(), collected);
         try {
-            AnalysisStatus status = transactionTemplate.execute(tx -> save(analysisId, sanitized.accepted(), marketIndex));
+            AnalysisStatus status = transactionTemplate.execute(tx -> save(analysisId, sanitized.accepted(), marketIndex, disclosureRetry));
             StockEventAnalysis saved = analysisRepository.findById(analysisId).orElseThrow();
+            if (disclosureRetry) {
+                log.warn("[Evidence] 공시 수집 실패 — 다른 근거는 저장, PENDING 유지(재시도) analysisId={} ticker={} date={} runs={} excluded={}",
+                        analysisId, target.ticker(), target.eventDate(), runs, sanitized.excluded());
+                return new EvidenceCollectResult(Outcome.PENDING_RETRY, List.copyOf(runs), 0, sanitized.excluded(), status);
+            }
             log.info("[Evidence] 수집 완료 analysisId={} ticker={} date={} runs={} saved={} excluded={} status={}", analysisId,
                     target.ticker(), target.eventDate(), runs, saved.getEvidenceCount(), sanitized.excluded(), status);
             return new EvidenceCollectResult(Outcome.COMPLETED, List.copyOf(runs), saved.getEvidenceCount(),
@@ -178,7 +190,7 @@ public class EvidenceCollectService {
         }
     }
 
-    private AnalysisStatus save(Long analysisId, List<CollectedEvidence> evidences, IndicatorCode marketIndex) {
+    private AnalysisStatus save(Long analysisId, List<CollectedEvidence> evidences, IndicatorCode marketIndex, boolean disclosureRetry) {
         StockEventAnalysis analysis = analysisRepository.findById(analysisId).orElseThrow();
         // 판정(applyEvidenceStatus)이 market_index_code로 지수를 고르므로 그보다 먼저 넣는다. 이미 값이 있으면 그대로
         analysis.assignMarketIndex(marketIndex);
@@ -186,6 +198,10 @@ public class EvidenceCollectService {
         for (CollectedEvidence e : evidences) {
             eventSourceRepository.insertIfAbsent(analysisId, e.type().name(), e.title(), e.sourceName(), e.publishedAt(),
                     e.url(), e.snippet(), e.relevanceRank(), e.externalId(), now);
+        }
+        if (disclosureRetry) {
+            // 근거 행만 남기고(재시도 때 insertIfAbsent로 중복 없음) 건수 · 판정 · 상태 전이는 수집이 끝날 때 한다 → 누적되지 않는다
+            return analysis.getAnalysisStatus();
         }
         analysis.completeCollection(Math.toIntExact(eventSourceRepository.countByAnalysisId(analysisId)));
         Map<SourceType, Long> counts = new EnumMap<>(SourceType.class);

@@ -50,6 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -138,7 +139,7 @@ class EvidenceCollectorsIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("4. DART만 실패 → 뉴스만 저장, 공시가 없어 SUMMARY_SKIPPED (Q-3) — 공시는 다시 수집되지 않는다: 배치 연결 때 결정")
+    @DisplayName("4. DART만 실패(800 서버 오류 — 재시도 가능) → 뉴스만 저장하고 PENDING 유지, 다시 부르면 공시를 다시 수집한다 (Q-6 D2)")
     void dartFails_newsSaved_b1Limitation() {
         StockEventAnalysis analysis = newAnalysis();
         when(corpCodeCache.corpCodeOf(analysis.getTicker())).thenReturn(Optional.of(CORP_CODE));
@@ -149,11 +150,13 @@ class EvidenceCollectorsIntegrationTest extends IntegrationTestSupport {
 
         EvidenceCollectResult result = service.collect(analysis.getId());
 
-        assertThat(result.outcome()).isEqualTo(Outcome.COMPLETED);
+        assertThat(result.outcome()).isEqualTo(Outcome.PENDING_RETRY);
         assertThat(rows(analysis)).extracting(EventSource::getSourceType).containsExactly(SourceType.NEWS);
-        assertThat(reload(analysis).getAnalysisStatus()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);
-        // 한계 고정: 다시 불러도 PENDING이 아니라 공시를 다시 수집하지 않는다
-        assertThat(service.collect(analysis.getId()).outcome()).isEqualTo(Outcome.SKIPPED_NOT_PENDING);
+        assertThat(reload(analysis).getAnalysisStatus()).isEqualTo(AnalysisStatus.PENDING);
+        // D2: 다시 부르면 PENDING이라 공시를 다시 수집한다(여전히 실패 → PENDING), 뉴스 행은 중복 없이 1건
+        assertThat(service.collect(analysis.getId()).outcome()).isEqualTo(Outcome.PENDING_RETRY);
+        verify(dartApiClient, times(2)).list(anyString(), any(), any(), anyString());
+        assertThat(rows(analysis)).extracting(EventSource::getSourceType).containsExactly(SourceType.NEWS);
     }
 
     @Test

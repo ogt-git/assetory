@@ -148,7 +148,7 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("2. 수집기 하나가 예외를 내도 다른 수집기 근거는 저장된다 — 공시 실패 · 뉴스만이라 요약 생략 (Q-3)")
+    @DisplayName("2. 공시 수집기가 (다시 하면 될 수 있는 오류로) 실패하면 다른 근거는 저장하고 PENDING 유지 — 재시도 대상 (Q-6 D2)")
     void oneCollectorFails_othersSaved() {
         StockEventAnalysis analysis = newAnalysis();
         disclosure.behavior = t -> {
@@ -158,13 +158,70 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
 
         EvidenceCollectResult result = service.collect(analysis.getId());
 
-        assertThat(result.outcome()).isEqualTo(Outcome.COMPLETED);
+        assertThat(result.outcome()).isEqualTo(Outcome.PENDING_RETRY);
         assertThat(result.runs()).filteredOn(r -> r.sourceType() == SourceType.DISCLOSURE)
-                .singleElement().satisfies(r -> assertThat(r.success()).isFalse());
+                .singleElement().satisfies(r -> {
+                    assertThat(r.success()).isFalse();
+                    assertThat(r.retryable()).isTrue();
+                });
         assertThat(externalIds(analysis)).containsExactly("https://news.example.com/1");
         StockEventAnalysis reloaded = reload(analysis);
-        assertThat(reloaded.getAnalysisStatus()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);
-        assertThat(reloaded.getEvidenceCount()).isEqualTo(1);
+        assertThat(reloaded.getAnalysisStatus()).isEqualTo(AnalysisStatus.PENDING);
+        // 수집이 끝나지 않아 아직 세지 않는다 — 재시도가 끝날 때 실제 행 수로 다시 센다
+        assertThat(reloaded.getEvidenceCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("2-b. D2 재시도: 다음 실행에서 공시가 성공하면 COLLECTING, 뉴스 행은 중복 없이 1건 · evidence_count = 실제 행 수")
+    void disclosureRetry_thenSucceeds() {
+        StockEventAnalysis analysis = newAnalysis();
+        disclosure.behavior = t -> {
+            throw new EvidenceCollectException(SourceType.DISCLOSURE, "테스트 — 외부 오류");
+        };
+        news.behavior = t -> List.of(evidence(SourceType.NEWS, "n-1"));
+        service.collect(analysis.getId());
+
+        disclosure.behavior = t -> List.of(evidence(SourceType.DISCLOSURE, "d-1"));
+        EvidenceCollectResult retried = service.collect(analysis.getId());
+
+        assertThat(retried.outcome()).isEqualTo(Outcome.COMPLETED);
+        assertThat(retried.status()).isEqualTo(AnalysisStatus.COLLECTING);
+        assertThat(externalIds(analysis)).containsExactlyInAnyOrder("n-1", "d-1");
+        assertThat(reload(analysis).getEvidenceCount()).isEqualTo(2)
+                .isEqualTo((int) eventSourceRepository.countByAnalysisId(analysis.getId()));
+    }
+
+    @Test
+    @DisplayName("2-c. D2 재시도: 다음 실행에서 공시 0건 성공이면 뉴스만이라 SUMMARY_SKIPPED (Q-3)")
+    void disclosureRetry_thenZero() {
+        StockEventAnalysis analysis = newAnalysis();
+        disclosure.behavior = t -> {
+            throw new EvidenceCollectException(SourceType.DISCLOSURE, "테스트 — 외부 오류");
+        };
+        news.behavior = t -> List.of(evidence(SourceType.NEWS, "n-1"));
+        service.collect(analysis.getId());
+
+        disclosure.behavior = t -> List.of();
+        EvidenceCollectResult retried = service.collect(analysis.getId());
+
+        assertThat(retried.status()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);
+        assertThat(reload(analysis).getEvidenceCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("2-d. 다시 해도 같은 공시 실패(키 오류 등)는 D2를 타지 않는다 — 지금처럼 완료 처리, 뉴스만이면 SUMMARY_SKIPPED")
+    void nonRetryableDisclosureFailure_completes() {
+        StockEventAnalysis analysis = newAnalysis();
+        disclosure.behavior = t -> {
+            throw new EvidenceCollectException(SourceType.DISCLOSURE, "테스트 — 키 오류", null, false);
+        };
+        news.behavior = t -> List.of(evidence(SourceType.NEWS, "n-1"));
+
+        EvidenceCollectResult result = service.collect(analysis.getId());
+
+        assertThat(result.outcome()).isEqualTo(Outcome.COMPLETED);
+        assertThat(result.status()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);
+        assertThat(reload(analysis).getEvidenceCount()).isEqualTo(1);
     }
 
     @Test
@@ -188,7 +245,9 @@ class EvidenceCollectServiceIntegrationTest extends IntegrationTestSupport {
         assertThat(reloaded.getEvidenceCount()).isZero();
         assertThat(lockValue(analysis)).isNull();
 
-        // 다음 실행에서 성공하면 정상 진행된다 (거시지표만 저장 → 공시가 없어 요약 생략, Q-3)
+        // 다음 실행에서 성공하면 정상 진행된다 (거시지표만 저장 → 공시가 없어 요약 생략, Q-3).
+        // 공시도 0건 성공으로 바꾼다 — 공시가 계속 재시도 가능한 오류면 Q-6 D2로 PENDING에 머문다(2 · 2-b 테스트가 따로 본다)
+        disclosure.behavior = t -> List.of();
         macro.behavior = t -> List.of(evidence(SourceType.MACRO, "macro-retry"));
         assertThat(service.collect(analysis.getId()).outcome()).isEqualTo(Outcome.COMPLETED);
         assertThat(reload(analysis).getAnalysisStatus()).isEqualTo(AnalysisStatus.SUMMARY_SKIPPED);

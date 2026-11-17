@@ -21,6 +21,8 @@ public record EvidenceCollectResult(Outcome outcome, List<CollectorRun> runs, in
         COMPLETED,
         /** 실행한 수집기가 모두 실패 — 아무것도 바꾸지 않고 PENDING 유지, 다음 실행 때 재시도 */
         ALL_FAILED,
+        /** 공시 수집기가 재시도 가능한 오류로 실패 — 다른 근거 · 시장 구분은 저장, 상태는 PENDING 유지(재시도 대상, Q-6 D2) */
+        PENDING_RETRY,
         /** 저장 트랜잭션 실패 — 롤백, PENDING 유지 */
         SAVE_FAILED,
         /** 다른 실행이 락을 잡고 있음 */
@@ -30,8 +32,11 @@ public record EvidenceCollectResult(Outcome outcome, List<CollectorRun> runs, in
         NOT_FOUND
     }
 
-    /** @param collected 성공 시 수집기가 돌려준 건수(검증 · 중복 제거 전). 실패면 0 */
-    public record CollectorRun(SourceType sourceType, boolean success, int collected) {
+    /**
+     * @param collected 성공 시 수집기가 돌려준 건수(검증 · 중복 제거 전). 실패면 0
+     * @param retryable 실패일 때 다시 시도하면 될 수 있는지(성공이면 false) — 공시 수집기는 Q-6 D2 판단에 쓴다
+     */
+    public record CollectorRun(SourceType sourceType, boolean success, int collected, boolean retryable) {
     }
 
     static EvidenceCollectResult skipped(Outcome outcome, AnalysisStatus status) {
