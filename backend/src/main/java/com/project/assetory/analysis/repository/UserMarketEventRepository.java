@@ -35,6 +35,17 @@ public interface UserMarketEventRepository extends JpaRepository<UserMarketEvent
                                                                    @Param("date") LocalDate date);
 
     /**
+     * 원인 분석 상세의 내 이벤트 (ANL-9, Q-9) — 사용자 id를 조건에 넣은 조회(AGENTS 9장). 남의 이벤트는 없는 것과 같다(빈 결과).
+     * (user_id, analysis_id) · (ticker, event_date) UNIQUE라 결과는 0 · 1건. 공유 분석을 함께 읽는다(JOIN FETCH)
+     */
+    @Query("""
+            select e from UserMarketEvent e join fetch e.analysis a
+            where e.user.id = :userId and a.ticker = :ticker and e.eventDate = :date""")
+    Optional<UserMarketEvent> findWithAnalysisByUserIdAndTickerAndEventDate(@Param("userId") Long userId,
+                                                                            @Param("ticker") String ticker,
+                                                                            @Param("date") LocalDate date);
+
+    /**
      * 지난 이벤트 (ANL-10, FR-CA-13, Q-9 D4 · D6) — 같은 사용자 · 같은 종목에서 before보다 앞선 날짜, 최신순 최대 limit건. 소급 이벤트 포함.
      * 사용자 id를 조건에 넣은 조회(AGENTS 9장). 인덱스 (user_id, event_date)를 범위로 읽고 종목은 분석 PK 조인 뒤 거른다
      */

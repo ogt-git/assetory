@@ -14,6 +14,7 @@ import com.project.assetory.connect.exception.RefreshCooldownException;
 import com.project.assetory.detection.exception.DetectionRuleNotFoundException;
 import com.project.assetory.detection.exception.DetectionSettingInvalidException;
 import com.project.assetory.market.exception.KisApiException;
+import com.project.assetory.analysis.exception.StockEventNotFoundException;
 import com.project.assetory.snapshot.exception.SnapshotNotFoundException;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.ConstraintViolationException;
@@ -98,6 +99,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<?>> handleSnapshotNotFound(SnapshotNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.error(ErrorCode.SNAPSHOT_NOT_FOUND.getMessage(), ErrorCode.SNAPSHOT_NOT_FOUND.name()));
+    }
+
+    // 종목 이벤트 없음 (Q-9) — 없는 이벤트 · 남의 이벤트 모두 같은 응답(존재 여부를 알리지 않는다)
+    @ExceptionHandler(StockEventNotFoundException.class)
+    public ResponseEntity<ApiResponse<?>> handleStockEventNotFound(StockEventNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(ErrorCode.STOCK_EVENT_NOT_FOUND.getMessage(), ErrorCode.STOCK_EVENT_NOT_FOUND.name()));
     }
 
     // 감지 규칙 없음 (없는 ruleCode · 비활성 규칙 모두 같은 응답)

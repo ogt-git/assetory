@@ -28,6 +28,7 @@ public enum ErrorCode {
     RESOURCE_NOT_FOUND(404, "요청한 리소스를 찾을 수 없습니다"),
     MANUAL_ASSET_NOT_FOUND(404, "수동 자산 정보를 찾을 수 없습니다"),
     SNAPSHOT_NOT_FOUND(404, "해당 날짜의 자산 기록이 없습니다"),
+    STOCK_EVENT_NOT_FOUND(404, "해당 날짜의 종목 이벤트가 없습니다"),
 
     // 변화 감지 설정 (FR-DT-02) — 입력값은 문구에 넣지 않는다
     DETECTION_RULE_NOT_FOUND(404, "알림 규칙을 찾을 수 없습니다"),
