@@ -65,7 +65,8 @@ public class DartDisclosureCollector implements EvidenceCollector {
             return DartEvidenceMapper.toEvidences(disclosures);
         } catch (DartApiException e) {
             // DartApiException 메시지는 유형 · DART status뿐이라 cause로 붙여도 키 · URL이 없다
-            throw new EvidenceCollectException(SourceType.DISCLOSURE, e.getErrorType().name(), e);
+            // retryable — 서버 오류 · 요청 한도 · 네트워크는 재시도 대상(Q-6 D2), 키 오류 · 키 없음 · 잘못된 요청 · 페이지 상한은 아님
+            throw new EvidenceCollectException(SourceType.DISCLOSURE, e.getErrorType().name(), e, e.getErrorType().isRetryable());
         }
     }
 }
