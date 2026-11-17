@@ -1,0 +1,4 @@
+{
+  "_comment": "테스트 전용 — 실호출 확인 전 가정 형식(Chat Completions 문서 기준 더미). 실제 응답 원문 · 키 아님",
+  "error": {"message": "테스트 전용 — 잘못된 키", "type": "invalid_request_error", "param": null, "code": "invalid_api_key"}
+}
