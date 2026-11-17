@@ -145,6 +145,9 @@ assetory:
     # 연동 직후 소급 분석(날짜 < 오늘 · PENDING) 중 한 번에 근거를 수집할 최대 건수 — |변동률| 큰 순 (Q-4, LLM 미호출)
     # 분석 1건당 외부 호출 약 8회(DART · 네이버 · 한투 종목정보). 넘는 분석은 PENDING으로 남는다
     backfill-collect-max: ${ASSETORY_ANALYSIS_BACKFILL_COLLECT_MAX:50}
+    # 원인 분석 상세(S-04)의 지난 이벤트 최대 건수 — 같은 사용자 · 같은 종목, 최신순, 소급 포함 (Q-9, ANL-10)
+    # TODO(Q-9): 문서에 값 없음 — 기본 5는 제안값, S-04 화면 확인 후 조정
+    past-events-max: ${ASSETORY_ANALYSIS_PAST_EVENTS_MAX:5}
     # PENDING 분석 재시도 (Q-6, ANL-7) — 생성 후 window 안, |변동률| 큰 순 · 1회 max-per-run건을 기존 근거 수집 경로로 다시 수집
     # 재시도 횟수 컬럼이 없어 시간 창이 상한이다(기본 24시간 ÷ 30분 = 최대 48회). 창이 지난 PENDING은 그대로 둔다(NO_EVIDENCE로 바꾸지 않음)
     # 켜짐 기본값은 일일 배치 설정을 따른다(잠정 종가 보정과 같은 방식) — 재시도만 끄려면 ASSETORY_ANALYSIS_RETRY_ENABLED=false

@@ -2,6 +2,7 @@ package com.project.assetory.analysis.repository;
 
 import com.project.assetory.analysis.domain.UserMarketEvent;
 import com.project.assetory.user.domain.UserStatus;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -32,6 +33,18 @@ public interface UserMarketEventRepository extends JpaRepository<UserMarketEvent
             """)
     List<UserMarketEvent> findAllWithAnalysisByUserIdAndEventDate(@Param("userId") Long userId,
                                                                    @Param("date") LocalDate date);
+
+    /**
+     * 지난 이벤트 (ANL-10, FR-CA-13, Q-9 D4 · D6) — 같은 사용자 · 같은 종목에서 before보다 앞선 날짜, 최신순 최대 limit건. 소급 이벤트 포함.
+     * 사용자 id를 조건에 넣은 조회(AGENTS 9장). 인덱스 (user_id, event_date)를 범위로 읽고 종목은 분석 PK 조인 뒤 거른다
+     */
+    @Query("""
+            select new com.project.assetory.analysis.repository.PastEventRow(e.eventDate, e.direction, a.changeRate)
+            from UserMarketEvent e join e.analysis a
+            where e.user.id = :userId and a.ticker = :ticker and e.eventDate < :before
+            order by e.eventDate desc""")
+    List<PastEventRow> findPastEvents(@Param("userId") Long userId, @Param("ticker") String ticker,
+                                      @Param("before") LocalDate before, Limit limit);
 
     /**
      * 요약 한도 차감 후보 (Q-8 D2, FR-AI-02) — 분석에 연결된 소급 아닌 이벤트의 활성(ACTIVE) 사용자 id, 이벤트 id 오름차순(먼저 감지된 순).

@@ -43,6 +43,15 @@ class AnalysisConfigTest {
     }
 
     @Test
+    @DisplayName("지난 이벤트 개수(Q-9 · ANL-10) 기본 5, 환경변수로 바꿀 수 있고 0 이하는 기동 실패")
+    void pastEventsMax() {
+        runner.run(context -> assertThat(context.getBean(AnalysisProperties.class).pastEventsMax()).isEqualTo(5));
+        runner.withPropertyValues("ASSETORY_ANALYSIS_PAST_EVENTS_MAX=3")
+                .run(context -> assertThat(context.getBean(AnalysisProperties.class).pastEventsMax()).isEqualTo(3));
+        runner.withPropertyValues("ASSETORY_ANALYSIS_PAST_EVENTS_MAX=0").run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
     @DisplayName("소급 수집 상한 0 이하는 기동 실패")
     void backfillCollectMax_rejectsZero() {
         runner.withPropertyValues("ASSETORY_ANALYSIS_BACKFILL_COLLECT_MAX=0")
