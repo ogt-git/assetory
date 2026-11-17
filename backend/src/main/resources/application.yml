@@ -135,6 +135,21 @@ assetory:
     # 연동 직후 소급 분석(날짜 < 오늘 · PENDING) 중 한 번에 근거를 수집할 최대 건수 — |변동률| 큰 순 (Q-4, LLM 미호출)
     # 분석 1건당 외부 호출 약 8회(DART · 네이버 · 한투 종목정보). 넘는 분석은 PENDING으로 남는다
     backfill-collect-max: ${ASSETORY_ANALYSIS_BACKFILL_COLLECT_MAX:50}
+  # LLM (FR-AI-01 — 원인 요약 · 목표 코멘트 · 월간 총평) — OpenAI Chat Completions를 RestClient로 직접 호출 (Q-5)
+  # 키 · 모델은 환경변수로만. 비어 있어도 기동되고 호출 시 요청 없이 CONFIG_MISSING. 호출 안에서는 재시도하지 않는다
+  ai:
+    openai:
+      base-url: ${ASSETORY_AI_OPENAI_BASE_URL:https://api.openai.com/v1}
+      api-key: ${OPENAI_API_KEY:}
+      # 모델 기본값 없음 — 키를 발급할 때 소형 · 저가 모델로 정한다
+      model: ${ASSETORY_AI_OPENAI_MODEL:}
+      # 요청 max_completion_tokens. 추론 계열 모델은 추론 토큰이 포함돼 작으면 length(TRUNCATED)로 끝날 수 있다 — 실호출로 조정
+      max-output-tokens: ${ASSETORY_AI_OPENAI_MAX_OUTPUT_TOKENS:300}
+      # 있을 때만 요청에 넣는다(일부 모델은 temperature를 받지 않는다)
+      temperature: ${ASSETORY_AI_OPENAI_TEMPERATURE:}
+      # 외부 API 타임아웃 10초 (AGENTS 9장, NFR-PF-05)
+      connect-timeout: ${ASSETORY_AI_OPENAI_CONNECT_TIMEOUT:10s}
+      read-timeout: ${ASSETORY_AI_OPENAI_READ_TIMEOUT:10s}
   # 근거 수집 (FR-CA-01 · 02) — 수집기 구현은 B2(DART) · B3(네이버 뉴스) · B4(ECOS)
   evidence:
     # 수집기 외부 호출 1회 연결 · 읽기 타임아웃 (NFR-PF-05). 수집기 전체 실행 시간 합은 공유 분석 락 TTL(5분)보다 작아야 한다
