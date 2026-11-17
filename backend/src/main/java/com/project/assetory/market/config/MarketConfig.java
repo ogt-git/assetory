@@ -9,7 +9,7 @@ import java.time.Clock;
 import java.time.ZoneId;
 
 @Configuration
-@EnableConfigurationProperties({MarketProperties.class, MacroIndicatorProperties.class})
+@EnableConfigurationProperties({MarketProperties.class, MacroIndicatorProperties.class, MarketCloseProperties.class})
 public class MarketConfig {
 
     // 거래일 · 장 마감 가드 판정용 현재 시각 (Asia/Seoul) — 테스트에서 고정 시각으로 바꾼다

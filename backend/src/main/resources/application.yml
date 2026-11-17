@@ -108,6 +108,10 @@ assetory:
     late-close-dates: ${ASSETORY_MARKET_LATE_CLOSE_DATES:2026-11-19}
     # 장 마감 지연일의 가드 — 16:30 마감 + 여유 10분
     late-close-guard-time: ${ASSETORY_MARKET_LATE_CLOSE_GUARD_TIME:16:40}
+    # 장 마감 시각 — 근거가 장 마감 이후 공개됐는지 판정하는 기준 (Q-9, ANL-8, FR-CA-08). 위 수집 가드(15:40 · 16:40)와 다른 값
+    # 15:30 정각 공개는 장 마감 이후로 본다. 지연일(late-close-dates)이면 late-close-time을 쓴다
+    close-time: ${ASSETORY_MARKET_CLOSE_TIME:15:30}
+    late-close-time: ${ASSETORY_MARKET_LATE_CLOSE_TIME:16:30}
     # 지수 · 거시지표(B4) — 매 실행 [기준일 − N일, 기준일]을 받아 업서트한다. 16:00 잠정값은 다음 실행에서 고쳐진다
     # 가장 오래된 날짜는 직전 값이 없어 저장하지 않는다(최소 2). 45일 ≈ 30거래일 — 소급 이벤트 범위(20거래일)를 덮는다
     indicator-lookback-days: ${ASSETORY_MARKET_INDICATOR_LOOKBACK_DAYS:45}
