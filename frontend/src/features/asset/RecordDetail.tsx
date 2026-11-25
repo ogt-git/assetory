@@ -2,6 +2,7 @@ import type {
   AssetType,
   SnapshotDetailAssetClassItem,
   SnapshotDetailAssetItem,
+  SnapshotDetailEventItem,
   SnapshotDetailHoldingItem,
   SnapshotDetailResponse,
 } from '@/features/asset/api'
@@ -9,6 +10,7 @@ import { useSnapshotDetail } from '@/features/asset/queries'
 import { cn } from '@/shared/lib/cn'
 import {
   formatKRW,
+  formatRate,
   formatShortDate,
   formatSignedKRW,
 } from '@/shared/lib/format'
@@ -82,6 +84,14 @@ function DetailBody({ data }: { data: SnapshotDetailResponse }) {
         <ClassRow label="현금" item={classes.cash} />
       </dl>
 
+      {data.events.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {data.events.map((event) => (
+            <EventRow key={event.ticker} event={event} />
+          ))}
+        </ul>
+      )}
+
       {data.assets.length > 0 && (
         <ul className="flex flex-col gap-2">
           {data.assets.map((asset) => (
@@ -90,6 +100,32 @@ function DetailBody({ data }: { data: SnapshotDetailResponse }) {
         </ul>
       )}
     </div>
+  )
+}
+
+/**
+ * 그날 급등락 이벤트 1줄 (A6, 03 S-02 펼침) — "🔔 종목명 ±변동률 · 내 평가금액 ±금액".
+ * 원인 · 근거는 보여주지 않는다(근거 수집 · 원인 분석 화면은 11주차). 금액이 없으면(연동 전 이벤트) 금액 부분을 뺀다
+ */
+function EventRow({ event }: { event: SnapshotDetailEventItem }) {
+  return (
+    <li className="flex flex-wrap items-baseline gap-x-1.5 text-sm">
+      <span role="img" aria-label="이벤트">
+        🔔
+      </span>
+      <span className="font-medium break-all">{event.stockName}</span>
+      <span className={cn('tabular-nums', toneClass(event.changeRate))}>
+        {formatRate(event.changeRate)}
+      </span>
+      {event.changeAmount != null && (
+        <span className="text-flat text-xs">
+          · 내 평가금액{' '}
+          <span className={cn('tabular-nums', toneClass(event.changeAmount))}>
+            {formatSignedKRW(event.changeAmount)}
+          </span>
+        </span>
+      )}
+    </li>
   )
 }
 

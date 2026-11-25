@@ -38,7 +38,9 @@ public class FakeCodefApiClient extends CodefApiClient {
     // 연동 직후 처음 보이는 포트폴리오 — 화면에서 새로 연동한 계좌용
     private static final String DEFAULT_PORTFOLIO = portfolio(new BigDecimal("1000000"), List.of(
             new Item("005930", "삼성전자", new BigDecimal("10"), new BigDecimal("70000"), new BigDecimal("65000")),
-            new Item("069500", "KODEX 200", new BigDecimal("5"), new BigDecimal("35000"), new BigDecimal("32000"))));
+            new Item("069500", "KODEX 200", new BigDecimal("5"), new BigDecimal("35000"), new BigDecimal("32000")),
+            // Q-4 시연 — 데모 계정 누구도 15평일 전에 보유하지 않은 종목이라, 연동하면 소급 이벤트만 붙은 분석이 생긴다
+            new Item("000660", "SK하이닉스", new BigDecimal("3"), new BigDecimal("180000"), new BigDecimal("170000"))));
 
     private final Map<String, String> responses = new ConcurrentHashMap<>();
 

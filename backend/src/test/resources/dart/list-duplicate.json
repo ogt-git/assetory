@@ -1,0 +1,21 @@
+{
+  "_comment": "테스트 전용 더미 값 — 같은 접수번호가 두 번 오는 경우(방어용 가정), B0 실호출로 필드 대조 완료(2026-11-16)",
+  "status": "000",
+  "message": "정상",
+  "page_no": 1,
+  "page_count": 100,
+  "total_count": 2,
+  "total_page": 1,
+  "list": [
+    {
+      "corp_code": "00999901", "corp_name": "테스트전자", "stock_code": "999901", "corp_cls": "Y",
+      "report_nm": "주요사항보고서(자기주식취득결정)", "rcept_no": "20261105900001",
+      "flr_nm": "테스트전자", "rcept_dt": "20261105", "rm": ""
+    },
+    {
+      "corp_code": "00999901", "corp_name": "테스트전자", "stock_code": "999901", "corp_cls": "Y",
+      "report_nm": "주요사항보고서(자기주식취득결정)", "rcept_no": "20261105900001",
+      "flr_nm": "테스트전자", "rcept_dt": "20261105", "rm": ""
+    }
+  ]
+}

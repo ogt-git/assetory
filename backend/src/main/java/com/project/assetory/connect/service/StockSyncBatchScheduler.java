@@ -21,7 +21,7 @@ public class StockSyncBatchScheduler {
         dailyAssetBatchService.run();
     }
 
-    // 장 마감 지연일(수능일) 전용 — 지연일이 아니면 배치 안에서 바로 끝난다. 단일 스레드 스케줄러라 16:00 실행과 겹치지 않는다
+    // 장 마감 지연일(수능일) 전용 — 지연일이 아니면 배치 안에서 바로 끝나고, 지연일에는 16:00 실행이 바로 건너뛴다 → 스레드 풀(3)에서도 16:00 실행과 겹치지 않는다
     @Scheduled(cron = "${assetory.sync.batch.late-close-cron:0 50 16 * * MON-FRI}", zone = "Asia/Seoul")
     public void runLateClose() {
         dailyAssetBatchService.runLateClose();

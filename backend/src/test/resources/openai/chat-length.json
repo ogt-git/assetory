@@ -1,0 +1,6 @@
+{
+  "_comment": "테스트 전용 — 실호출 확인 전 가정 형식(Chat Completions 문서 기준 더미). 실제 응답 원문 · 키 아님",
+  "id": "chatcmpl-test-0002", "object": "chat.completion",
+  "choices": [{"index": 0, "message": {"role": "assistant", "content": "같은 시점에 데모 공시가 있었고 이어서 설명이 길"}, "finish_reason": "length"}],
+  "usage": {"prompt_tokens": 120, "completion_tokens": 300}
+}

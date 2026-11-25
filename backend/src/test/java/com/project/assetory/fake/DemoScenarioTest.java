@@ -279,4 +279,188 @@ class DemoScenarioTest {
             });
         }
     }
+
+    // ---------- B5: 근거 · 지수 데모 ----------
+
+    @Nested
+    @DisplayName("B5 근거 · 지수 데모")
+    class EvidenceDemo {
+
+        private final UserPlan plan = SCENARIO.plan(DemoUser.DEMO1);
+
+        @Test
+        @DisplayName("1. 신규 이벤트(5평일 전) — 평일 · 그날 COMPLETE · 005930 보유 · 전일 대비 +6% 이상")
+        void recentSurge() {
+            LocalDate date = SCENARIO.recentSurgeDate();
+
+            assertThat(date).isEqualTo(SCENARIO.calendar().get(SCENARIO.calendar().size() - 1 - 5));
+            assertThat(date.getDayOfWeek()).isNotIn(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY);
+            Day day = plan.days().stream().filter(d -> d.date().equals(date)).findFirst().orElseThrow();
+            assertThat(status(day)).contains(SnapshotStatus.COMPLETE);
+            assertThat(quantity(day, DemoScenario.RECENT_SURGE_TICKER)).isPositive();
+            assertThat(rate(SCENARIO.prices().get(DemoScenario.RECENT_SURGE_TICKER).stream()
+                    .map(p -> new DemoScenario.SeriesPoint(p.date(), p.close())).toList(), date))
+                    .isGreaterThanOrEqualTo(new BigDecimal("6"));
+        }
+
+        @Test
+        @DisplayName("1-b. 감지 대상 이벤트일 = 200 · 45 · 10 · 5평일 전, 서로 겹치지 않는다")
+        void detectionDates() {
+            assertThat(SCENARIO.detectionDates()).containsExactly(
+                    SCENARIO.surgeDate(), SCENARIO.plungeDate(), SCENARIO.newsOnlyDate(), SCENARIO.recentSurgeDate());
+            assertThat(SCENARIO.detectionDates()).doesNotHaveDuplicates();
+        }
+
+        @Test
+        @DisplayName("3. 지수: 45평일 전(급락일)은 KOSPI · KOSDAQ가 같은 방향으로 크게(−2.5% 이하), 200 · 5평일 전과 나머지 날은 평탄(±1% 미만)")
+        void indexPattern() {
+            for (String code : List.of("KOSPI", "KOSDAQ")) {
+                List<DemoScenario.SeriesPoint> series = SCENARIO.indexes().get(code);
+                assertThat(series).extracting(DemoScenario.SeriesPoint::date).isEqualTo(SCENARIO.calendar());
+                assertThat(rate(series, SCENARIO.plungeDate())).as(code + " 급락일").isLessThanOrEqualTo(new BigDecimal("-2.5"));
+                for (int i = 1; i < series.size(); i++) {
+                    LocalDate date = series.get(i).date();
+                    if (date.equals(SCENARIO.plungeDate())) continue;
+                    assertThat(rate(series, date).abs()).as(code + " " + date).isLessThan(BigDecimal.ONE);
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("3-a. 시장 동반 시연(Q-2): 급락일 069500(ETF)은 −5% 이하로 감지 대상이고, KOSPI 대비 판정이 MARKET_MOVE")
+        void marketMoveDemo() {
+            LocalDate date = SCENARIO.plungeDate();
+            BigDecimal etf = rate(SCENARIO.prices().get(DemoScenario.MARKET_MOVE_TICKER).stream()
+                    .map(p -> new DemoScenario.SeriesPoint(p.date(), p.close())).toList(), date);
+            BigDecimal kospi = rate(SCENARIO.indexes().get("KOSPI"), date);
+
+            assertThat(etf).isLessThanOrEqualTo(new BigDecimal("-5"));
+            assertThat(quantity(SCENARIO.plan(DemoUser.DEMO1).days().stream().filter(d -> d.date().equals(date)).findFirst().orElseThrow(),
+                    DemoScenario.MARKET_MOVE_TICKER)).isPositive();
+            // ETF는 공시 · 뉴스를 수집하지 않는다 → 근거 0건. 기준은 운영 기본값(2.0%p)
+            assertThat(com.project.assetory.analysis.domain.EvidenceStatusCalculator
+                    .judge(etf, kospi, java.util.Map.of(), new BigDecimal("2.0")).status())
+                    .isEqualTo(com.project.assetory.analysis.domain.EvidenceStatus.MARKET_MOVE);
+        }
+
+        @Test
+        @DisplayName("3-b. 거시지표: 기준금리 · 원/달러 — 데모 기간 전체 평일, 값은 양수")
+        void macroSeries() {
+            for (String code : List.of("BASE_RATE", "USD_KRW")) {
+                List<DemoScenario.SeriesPoint> series = SCENARIO.macro().get(code);
+                assertThat(series).extracting(DemoScenario.SeriesPoint::date).isEqualTo(SCENARIO.calendar());
+                assertThat(series).allSatisfy(p -> assertThat(p.value()).isPositive());
+            }
+        }
+
+        @Test
+        @DisplayName("공시: 5평일 · 45평일 전 이벤트 종목에만, 접수일은 이벤트일 전후 1일 안 · 접수번호 앞 8자리 = 접수일, 200평일 전은 없음")
+        void disclosures() {
+            List<DemoScenario.DemoDisclosure> list = SCENARIO.disclosures();
+
+            assertThat(list).isNotEmpty();
+            assertThat(list).allSatisfy(d -> {
+                assertThat(d.receiptNo()).hasSize(14).startsWith(d.receiptDate().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE));
+                assertThat(d.type()).matches("[A-J]");
+            });
+            assertThat(list).filteredOn(d -> d.ticker().equals(DemoScenario.RECENT_SURGE_TICKER))
+                    .isNotEmpty().allSatisfy(d -> assertThat(within(d.receiptDate(), SCENARIO.recentSurgeDate())).isTrue());
+            assertThat(list).filteredOn(d -> d.ticker().equals(DemoScenario.PLUNGE_TICKER))
+                    .isNotEmpty().allSatisfy(d -> assertThat(within(d.receiptDate(), SCENARIO.plungeDate())).isTrue());
+            assertThat(list).noneMatch(d -> within(d.receiptDate(), SCENARIO.surgeDate()));
+            assertThat(SCENARIO.corpCode(DemoScenario.RECENT_SURGE_TICKER)).hasSize(8);
+            assertThat(SCENARIO.corpCode(DemoScenario.PLUNGE_TICKER)).hasSize(8);
+        }
+
+        @Test
+        @DisplayName("4. 기사(5평일 전만): 15:30 이후 1건 이상 · 장중 1건 이상 · 제목에 종목명 없는 1건 · 같은 원문 URL 1건, 45 · 200평일 전 기사 없음")
+        void articles() {
+            LocalDate date = SCENARIO.recentSurgeDate();
+            String name = DemoScenario.stockName(DemoScenario.RECENT_SURGE_TICKER);
+            // 5평일 전 이벤트 기사만 본다 — 10평일 전 뉴스만 이벤트(Q-3)는 4-b
+            List<DemoScenario.DemoArticle> list = SCENARIO.articles().stream()
+                    .filter(a -> a.query().equals(DemoScenario.RECENT_SURGE_TICKER)).toList();
+
+            assertThat(list).allSatisfy(a -> {
+                assertThat(a.query()).isEqualTo(DemoScenario.RECENT_SURGE_TICKER); // 수집기는 종목코드로 검색한다(B0 N4)
+                assertThat(within(a.pubDate().toLocalDate(), date)).isTrue();
+            });
+            java.time.LocalTime close = java.time.LocalTime.of(15, 30);
+            assertThat(list).anyMatch(a -> a.pubDate().toLocalDate().equals(date) && !a.pubDate().toLocalTime().isBefore(close));
+            assertThat(list).anyMatch(a -> a.pubDate().toLocalDate().equals(date) && a.pubDate().toLocalTime().isBefore(close));
+            assertThat(list).filteredOn(a -> !a.title().replaceAll("<[^>]*>", "").contains(name)).hasSize(1);
+            assertThat(list.stream().map(DemoScenario.DemoArticle::originallink).distinct().count()).isEqualTo(list.size() - 1);
+            assertThat(SCENARIO.expectedNewsCount()).isEqualTo(list.size() - 1); // 중복 1건만 제외(제목 필터 없음)
+        }
+
+        @Test
+        @DisplayName("4-b. 뉴스만 시연(Q-3): 10평일 전 035720은 +5% 이상 · 보유 중, 기사 2건(장중 · 장 마감 후) · 그날 전후 공시 0건 → RELATED_FOUND · 요약 입력 없음")
+        void newsOnlyDemo() {
+            LocalDate date = SCENARIO.newsOnlyDate();
+            String ticker = DemoScenario.NEWS_ONLY_TICKER;
+            BigDecimal change = rate(SCENARIO.prices().get(ticker).stream()
+                    .map(p -> new DemoScenario.SeriesPoint(p.date(), p.close())).toList(), date);
+            List<DemoScenario.DemoArticle> news = SCENARIO.articles().stream().filter(a -> a.query().equals(ticker)).toList();
+
+            assertThat(change).isGreaterThanOrEqualTo(new BigDecimal("5"));
+            assertThat(quantity(SCENARIO.plan(DemoUser.DEMO1).days().stream().filter(d -> d.date().equals(date)).findFirst().orElseThrow(),
+                    ticker)).isPositive();
+            assertThat(news).hasSize(SCENARIO.expectedNewsOnlyCount())
+                    .allSatisfy(a -> assertThat(a.pubDate().toLocalDate()).isEqualTo(date));
+            java.time.LocalTime close = java.time.LocalTime.of(15, 30);
+            assertThat(news).anyMatch(a -> a.pubDate().toLocalTime().isBefore(close))
+                    .anyMatch(a -> !a.pubDate().toLocalTime().isBefore(close));
+            assertThat(SCENARIO.disclosures()).noneMatch(d -> d.ticker().equals(ticker) && within(d.receiptDate(), date));
+
+            java.util.Map<com.project.assetory.analysis.domain.SourceType, Long> counts =
+                    java.util.Map.of(com.project.assetory.analysis.domain.SourceType.NEWS, (long) news.size());
+            assertThat(com.project.assetory.analysis.domain.EvidenceStatusCalculator
+                    .judge(change, rate(SCENARIO.indexes().get("KOSPI"), date), counts, new BigDecimal("2.0")).status())
+                    .isEqualTo(com.project.assetory.analysis.domain.EvidenceStatus.RELATED_FOUND);
+            assertThat(com.project.assetory.analysis.domain.EvidenceStatusCalculator.hasSummaryInput(counts)).isFalse();
+        }
+
+        @Test
+        @DisplayName("4-c. 소급 전용 시연(Q-4): 15평일 전 000660은 +5% 이상 · 공시 1건 · 기사 0건, 그날 데모 계정 누구도 보유하지 않고 감지 시드 대상도 아니다")
+        void backfillOnlyDemo() {
+            LocalDate date = SCENARIO.backfillOnlyDate();
+            String ticker = DemoScenario.BACKFILL_ONLY_TICKER;
+            BigDecimal change = rate(SCENARIO.prices().get(ticker).stream()
+                    .map(p -> new DemoScenario.SeriesPoint(p.date(), p.close())).toList(), date);
+
+            assertThat(change).isGreaterThanOrEqualTo(new BigDecimal("5"));
+            assertThat(SCENARIO.disclosures()).filteredOn(d -> d.ticker().equals(ticker) && within(d.receiptDate(), date)).hasSize(1);
+            assertThat(SCENARIO.articles()).noneMatch(a -> a.query().equals(ticker));
+            assertThat(SCENARIO.detectionDates()).doesNotContain(date);
+            for (DemoUser user : DemoUser.values()) {
+                SCENARIO.plan(user).days().stream().filter(d -> d.date().equals(date)).findFirst()
+                        .ifPresent(d -> {
+                            BigDecimal held = quantity(d, ticker);
+                            assertThat(held == null || held.signum() == 0).as(user + " 보유 없음").isTrue();
+                        });
+            }
+        }
+
+        @Test
+        @DisplayName("5. 결정성 — 같은 기준일이면 지수 · 지표 · 공시 · 기사가 같다")
+        void deterministic() {
+            DemoScenario again = DemoScenario.of(BASE);
+
+            assertThat(again.indexes()).isEqualTo(SCENARIO.indexes());
+            assertThat(again.macro()).isEqualTo(SCENARIO.macro());
+            assertThat(again.disclosures()).isEqualTo(SCENARIO.disclosures());
+            assertThat(again.articles()).isEqualTo(SCENARIO.articles());
+        }
+
+        private static boolean within(LocalDate value, LocalDate eventDate) {
+            return !value.isBefore(eventDate.minusDays(1)) && !value.isAfter(eventDate.plusDays(1));
+        }
+
+        private static BigDecimal rate(List<DemoScenario.SeriesPoint> series, LocalDate date) {
+            int index = series.stream().map(DemoScenario.SeriesPoint::date).toList().indexOf(date);
+            BigDecimal today = series.get(index).value();
+            BigDecimal before = series.get(index - 1).value();
+            return today.subtract(before).multiply(BigDecimal.valueOf(100)).divide(before, 4, RoundingMode.HALF_UP);
+        }
+    }
 }

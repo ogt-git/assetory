@@ -40,6 +40,8 @@ public final class FakeKisServer {
     private final Map<String, List<Day>> dailyPrices = new ConcurrentHashMap<>();
     // 종목코드 → (증권그룹, 거래정지 Y/N)
     private final Map<String, String[]> stockInfos = new ConcurrentHashMap<>();
+    // 업종코드 → 최신순 지수 (B4 업종기간별시세). 등록하지 않은 코드는 빈 output2
+    private final Map<String, List<Day>> indexes = new ConcurrentHashMap<>();
     private final AtomicInteger tokenRequests = new AtomicInteger();
     private final Map<String, AtomicInteger> requests = new ConcurrentHashMap<>();
 
@@ -54,6 +56,7 @@ public final class FakeKisServer {
         server.createContext("/oauth2/tokenP", this::token);
         server.createContext("/uapi/domestic-stock/v1/quotations/inquire-daily-price", this::dailyPrice);
         server.createContext("/uapi/domestic-stock/v1/quotations/search-stock-info", this::stockInfo);
+        server.createContext("/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice", this::indexDaily);
         server.start();
     }
 
@@ -71,6 +74,7 @@ public final class FakeKisServer {
         mode = Mode.NORMAL;
         dailyPrices.clear();
         stockInfos.clear();
+        indexes.clear();
         tokenRequests.set(0);
         requests.clear();
     }
@@ -83,8 +87,17 @@ public final class FakeKisServer {
         dailyPrices.put(ticker, List.of(latestFirst));
     }
 
+    public void indexes(String indexCode, Day... latestFirst) {
+        indexes.put(indexCode, List.of(latestFirst));
+    }
+
     public void stockInfo(String ticker, String securityGroup, boolean halted) {
-        stockInfos.put(ticker, new String[]{securityGroup, halted ? "Y" : "N"});
+        stockInfo(ticker, securityGroup, halted, "");
+    }
+
+    /** marketIdCode = mket_id_cd (실호출 V2-b 형식: STK 유가증권 · KSQ 코스닥). 빈 문자열이면 시장 구분 없음 */
+    public void stockInfo(String ticker, String securityGroup, boolean halted, String marketIdCode) {
+        stockInfos.put(ticker, new String[]{securityGroup, halted ? "Y" : "N", marketIdCode});
     }
 
     public int tokenRequests() {
@@ -136,11 +149,26 @@ public final class FakeKisServer {
         count("stock-info");
         if (dropIfDown(exchange) || rejectBadToken(exchange)) return;
         String ticker = query(exchange.getRequestURI(), "PDNO");
-        String[] info = stockInfos.getOrDefault(ticker, new String[]{"ST", "N"});
+        String[] info = stockInfos.getOrDefault(ticker, new String[]{"ST", "N", ""});
         send(exchange, 200, """
                 {"rt_cd":"0","msg_cd":"KIOK0000","msg1":"정상처리 되었습니다","output":{"pdno":"%s","prdt_abrv_name":"테스트%s",
-                 "scty_grp_id_cd":"%s","etf_dvsn_cd":"","etf_type_cd":"","tr_stop_yn":"%s","admn_item_yn":"N","lstg_abol_dt":""}}"""
-                .formatted(ticker, ticker, info[0], info[1]));
+                 "scty_grp_id_cd":"%s","etf_dvsn_cd":"","etf_type_cd":"","tr_stop_yn":"%s","admn_item_yn":"N","lstg_abol_dt":"",
+                 "mket_id_cd":"%s"}}"""
+                .formatted(ticker, ticker, info[0], info[1], info[2]));
+    }
+
+    // 업종기간별시세(일) — B0 K1 실호출(2026-11-16)과 같이 대비율 없음(저장은 직접 계산)
+    private void indexDaily(HttpExchange exchange) throws IOException {
+        count("index-daily");
+        if (dropIfDown(exchange) || rejectBadToken(exchange)) return;
+        String code = query(exchange.getRequestURI(), "FID_INPUT_ISCD");
+        List<String> rows = new ArrayList<>();
+        for (Day day : indexes.getOrDefault(code, List.of())) {
+            rows.add("{\"stck_bsop_date\":\"%s\",\"bstp_nmix_prpr\":\"%s\"}"
+                    .formatted(day.date().format(BASIC), day.close().toPlainString()));
+        }
+        send(exchange, 200, "{\"rt_cd\":\"0\",\"msg_cd\":\"MCA00000\",\"msg1\":\"정상처리 되었습니다.\",\"output2\":["
+                + String.join(",", rows) + "]}");
     }
 
     // NETWORK_DOWN — 응답 없이 연결을 끊는다(클라이언트에는 I/O 오류)

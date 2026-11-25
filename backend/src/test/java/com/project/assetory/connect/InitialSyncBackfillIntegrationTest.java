@@ -13,6 +13,8 @@ import com.project.assetory.connect.event.ConnectedAccountLinkedEvent;
 import com.project.assetory.connect.repository.ConnectedAccountRepository;
 import com.project.assetory.connect.repository.InstitutionRepository;
 import com.project.assetory.connect.repository.SyncJobRepository;
+import com.project.assetory.detection.service.StockEventBackfillService;
+import com.project.assetory.analysis.service.BackfillEvidenceService;
 import com.project.assetory.global.crypto.HashUtil;
 import com.project.assetory.market.kis.KisApiClient;
 import com.project.assetory.market.kis.KisDailyPrice;
@@ -23,6 +25,7 @@ import com.project.assetory.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
@@ -46,6 +49,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -78,6 +84,10 @@ class InitialSyncBackfillIntegrationTest extends IntegrationTestSupport {
     @Autowired @Qualifier("codefSyncExecutor") ThreadPoolTaskExecutor codefSyncExecutor;
 
     private final AtomicInteger backfillsDone = new AtomicInteger();
+    @MockitoSpyBean StockEventBackfillService eventBackfillService;
+    private final AtomicInteger eventBackfillsDone = new AtomicInteger();
+    // Q-4 소급 직후 근거 수집 — DART · 네이버는 키가 비어 있어 호출 전에 실패(외부 호출 없음), 한투 종목정보는 목(null)
+    @MockitoSpyBean BackfillEvidenceService backfillEvidenceService;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -191,6 +201,186 @@ class InitialSyncBackfillIntegrationTest extends IntegrationTestSupport {
         for (String ticker : holdingTickers(connection.assetId())) {
             assertThat(priceRows(ticker)).isEqualTo(4);
         }
+    }
+
+    // ---------- 과거 이벤트 소급 (A5, FR-DT-08) ----------
+
+    // 이벤트 소급(실제 실행)이 끝난 횟수 — 비동기 완료 대기용. 기존 setUp은 바꾸지 않고 테스트마다 건다.
+    // 스파이는 트랜잭션 프록시 안쪽이라 이 카운터는 커밋 전에 오른다 → 결과를 읽기 전에 awaitExecutorIdle()로 커밋까지 기다린다
+    private void countEventBackfills() {
+        doAnswer(inv -> {
+            try {
+                return inv.callRealMethod();
+            } finally {
+                eventBackfillsDone.incrementAndGet();
+            }
+        }).when(eventBackfillService).backfill(anyLong(), anyBoolean());
+    }
+
+    // days(5)와 같고, LATEST − 1일만 +6% (모든 종목) — 소급되는 4행 중 1일이 임계치 초과
+    private static List<KisDailyPrice> daysWithMove() {
+        List<KisDailyPrice> rows = new ArrayList<>(days(5));
+        KisDailyPrice moved = rows.get(1);
+        rows.set(1, new KisDailyPrice(moved.tradeDate(), moved.closePrice(), BigDecimal.ONE, "2",
+                new BigDecimal("6.00"), 100L, null, null));
+        return rows;
+    }
+
+    private int userEvents(long assetId) {
+        return jdbc.queryForObject("""
+                select count(*) from user_market_events e join assets a on a.user_id = e.user_id
+                where a.id = ? and e.is_backfilled = true""", Integer.class, assetId);
+    }
+
+    private boolean backfillCompleted(long assetId) {
+        List<Boolean> flags = jdbc.queryForList("""
+                select s.backfill_completed from user_settings s join assets a on a.user_id = s.user_id where a.id = ?""",
+                Boolean.class, assetId);
+        return !flags.isEmpty() && flags.get(0);
+    }
+
+    @Test
+    @DisplayName("이벤트 소급: 연동 → 수집 → 시세 소급 → 이벤트 소급 순서, 보유 2종목 × 초과 1일 = 2건, 감지 기록 0, 완료 표시")
+    void eventBackfill_afterPriceBackfill() throws Exception {
+        when(kis.getDailyPrices(anyString())).thenReturn(daysWithMove());
+        countEventBackfills();
+        Connection connection = createSecuritiesConnection();
+
+        publishLinked(connection.id());
+
+        awaitUntil(() -> eventBackfillsDone.get() == 1, WAIT);
+        awaitExecutorIdle();
+        InOrder order = inOrder(backfillService, eventBackfillService);
+        order.verify(backfillService).backfillHoldings(connection.assetId());
+        order.verify(eventBackfillService).backfill(connection.assetId(), true);
+        assertThat(holdingTickers(connection.assetId())).hasSize(2);
+        assertThat(userEvents(connection.assetId())).isEqualTo(2);
+        assertThat(jdbc.queryForObject("""
+                select count(*) from detection_events d join assets a on a.user_id = d.user_id where a.id = ?""",
+                Integer.class, connection.assetId())).isZero();
+        assertThat(backfillCompleted(connection.assetId())).isTrue();
+        // Q-4 — 이벤트 소급 뒤 같은 작업에서, 이번 소급이 다룬 분석 2건으로 근거 수집을 부른다
+        verify(backfillEvidenceService).collect(argThat(ids -> ids.size() == 2));
+    }
+
+    @Test
+    @DisplayName("Q-4: 소급 직후 근거 수집이 예외를 던져도 소급 이벤트 · 완료 표시(backfill_completed)는 그대로")
+    void evidenceCollectThrows_backfillKept() throws Exception {
+        when(kis.getDailyPrices(anyString())).thenReturn(daysWithMove());
+        countEventBackfills();
+        doThrow(new IllegalStateException("테스트 전용 근거 수집 실패")).when(backfillEvidenceService).collect(any());
+        Connection connection = createSecuritiesConnection();
+
+        publishLinked(connection.id());
+
+        awaitUntil(() -> eventBackfillsDone.get() == 1, WAIT);
+        awaitExecutorIdle();
+        verify(backfillEvidenceService).collect(any());
+        assertThat(userEvents(connection.assetId())).isEqualTo(2);
+        assertThat(backfillCompleted(connection.assetId())).isTrue();
+    }
+
+    @Test
+    @DisplayName("이벤트 소급: 시세 소급에 실패한 종목이 있으면 남은 종목만 소급하고 완료 표시는 하지 않는다")
+    void eventBackfill_priceFailure_flagNotSet() throws Exception {
+        when(kis.getDailyPrices(anyString())).thenAnswer(inv -> {
+            if ("000660".equals(inv.getArgument(0))) {
+                throw new IllegalStateException("테스트 전용 시세 실패");
+            }
+            return daysWithMove();
+        });
+        countEventBackfills();
+        Connection connection = createSecuritiesConnection();
+
+        publishLinked(connection.id());
+
+        awaitUntil(() -> eventBackfillsDone.get() == 1, WAIT);
+        awaitExecutorIdle();
+        verify(eventBackfillService).backfill(connection.assetId(), false);
+        assertThat(backfillCompleted(connection.assetId())).isFalse();
+        assertThat(jdbc.queryForObject("""
+                select count(*) from user_market_events e join stock_event_analyses s on s.id = e.analysis_id
+                join assets a on a.user_id = e.user_id where a.id = ? and s.ticker = '005930'""",
+                Integer.class, connection.assetId())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("이벤트 소급이 예외를 던져도 연동 상태 · 보유 종목 · 수집 결과 · 시세는 유지되고 완료 표시는 없다")
+    void eventBackfillThrows_othersKept() throws Exception {
+        when(kis.getDailyPrices(anyString())).thenReturn(daysWithMove());
+        Connection connection = createSecuritiesConnection();
+        doAnswer(inv -> {
+            eventBackfillsDone.incrementAndGet();
+            throw new IllegalStateException("테스트 전용 이벤트 소급 실패");
+        }).when(eventBackfillService).backfill(eq(connection.assetId()), anyBoolean());
+
+        publishLinked(connection.id());
+
+        awaitUntil(() -> eventBackfillsDone.get() == 1, WAIT);
+        awaitExecutorIdle();
+        assertThat(connectedAccountRepository.findById(connection.id()).orElseThrow().getStatus())
+                .isEqualTo(ConnectedAccountStatus.ACTIVE);
+        assertThat(jobs(connection.id())).singleElement()
+                .satisfies(job -> assertThat(job.getStatus()).isEqualTo(SyncJobStatus.SUCCESS));
+        for (String ticker : holdingTickers(connection.assetId())) {
+            assertThat(priceRows(ticker)).isEqualTo(4);
+        }
+        assertThat(userEvents(connection.assetId())).isZero();
+        assertThat(backfillCompleted(connection.assetId())).isFalse();
+    }
+
+    @Test
+    @DisplayName("이벤트 소급: 수집 실패 · 조회 결과 없음(EMPTY_RESULT)이면 이벤트 소급도 하지 않는다")
+    void eventBackfill_notRunWhenSyncFailsOrEmpty() throws Exception {
+        Connection failed = createSecuritiesConnection();
+        Connection empty = createSecuritiesConnection();
+        when(codefApiClient.requestProduct(anyString(), argThat(p -> p != null && failed.connectedId().equals(p.get("connectedId")))))
+                .thenReturn(e2eFixture("failure.json"));
+        when(codefApiClient.requestProduct(anyString(), argThat(p -> p != null && empty.connectedId().equals(p.get("connectedId")))))
+                .thenReturn(EMPTY_RESULT);
+
+        publishLinked(failed.id());
+        publishLinked(empty.id());
+
+        awaitUntil(() -> jobs(failed.id()).stream().anyMatch(j -> j.getStatus() == SyncJobStatus.FAILED)
+                && !jobs(empty.id()).isEmpty(), WAIT);
+        awaitExecutorIdle();
+        verify(eventBackfillService, never()).backfill(eq(failed.assetId()), anyBoolean());
+        verify(eventBackfillService, never()).backfill(eq(empty.assetId()), anyBoolean());
+    }
+
+    @Test
+    @DisplayName("이벤트 소급: 두 번째 계좌를 연동하면 그 계좌 종목이 추가로 소급되고 완료 표시는 true 유지")
+    void eventBackfill_secondAccount() throws Exception {
+        when(kis.getDailyPrices(anyString())).thenReturn(daysWithMove());
+        countEventBackfills();
+        Connection first = createSecuritiesConnection();
+        publishLinked(first.id());
+        awaitUntil(() -> eventBackfillsDone.get() == 1, WAIT);
+        awaitExecutorIdle();
+        assertThat(userEvents(first.assetId())).isEqualTo(2);           // 005930 · 000660
+
+        // 같은 사용자의 두 번째 증권 계좌 — 005930 · 069500 · 111111 보유 (005930은 이미 같은 날 이벤트가 있어 건너뜀)
+        Long userId = jdbc.queryForObject("select user_id from assets where id = ?", Long.class, first.assetId());
+        String connectedId = "cid-backfill-2-" + UUID.randomUUID();
+        Long[] ids = new Long[2];
+        transactionTemplate.executeWithoutResult(status -> {
+            User user = userRepository.getReferenceById(userId);
+            var institution = institutionRepository.findByCodefOrgCode("0218").orElseThrow();
+            ConnectedAccount account = connectedAccountRepository.save(
+                    ConnectedAccount.create(user, institution, connectedId, BusinessType.ST));
+            ids[0] = account.getId();
+            ids[1] = assetRepository.save(Asset.securitiesAccount(user, account, institution, "12345678901")).getId();
+        });
+        when(codefApiClient.requestProduct(anyString(), argThat(p -> p != null && connectedId.equals(p.get("connectedId")))))
+                .thenReturn(e2eFixture("portfolio-success.json"));
+
+        publishLinked(ids[0]);
+        awaitUntil(() -> eventBackfillsDone.get() == 2, WAIT);
+        awaitExecutorIdle();
+
+        assertThat(userEvents(first.assetId())).isEqualTo(4);           // + 069500 · 111111
+        assertThat(backfillCompleted(first.assetId())).isTrue();
     }
 
     // ---------- helpers ----------

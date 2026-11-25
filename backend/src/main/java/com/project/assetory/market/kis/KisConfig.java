@@ -7,7 +7,7 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 @Configuration
-@EnableConfigurationProperties(KisProperties.class)
+@EnableConfigurationProperties({KisProperties.class, KisIndexCodes.class})
 public class KisConfig {
 
     // Boot가 주는 RestClient.Builder를 쓴다 — http.client.requests 메트릭이 자동으로 붙는다. 타임아웃 10초 (NFR-PF-05)

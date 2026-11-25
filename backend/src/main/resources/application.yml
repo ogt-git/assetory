@@ -5,6 +5,12 @@ spring:
   profiles:
     default: local
 
+  # 스케줄러 스레드 3개 — 근거 재시도(30분마다)가 길어져도 16:00 일일 배치 · 07:30 보정이 밀리지 않는다 (Q-6)
+  task:
+    scheduling:
+      pool:
+        size: 3
+
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
@@ -77,6 +83,18 @@ assetory:
     rate-limit:
       max-retries: ${KIS_RATE_LIMIT_MAX_RETRIES:2}
       backoff-ms: ${KIS_RATE_LIMIT_BACKOFF_MS:1000}
+    # 업종지수 코드 (FR-MK-02, inquire-daily-indexchartprice 시장 U). B0 K1 실호출 확인(2026-11-16): 0001 = 종합, 1001 = KOSDAQ
+    index-codes:
+      kospi: ${ASSETORY_KIS_INDEX_CODE_KOSPI:0001}
+      kosdaq: ${ASSETORY_KIS_INDEX_CODE_KOSDAQ:1001}
+  # 한국은행 ECOS Open API — 거시지표(기준금리 · 원/달러, FR-MK-03). 키는 환경변수로만, 키가 URL 경로에 들어간다
+  # 비어 있어도 기동되고 ECOS 지표만 실패한다(지수 · 자산 기록은 영향 없음)
+  ecos:
+    base-url: ${ASSETORY_ECOS_BASE_URL:https://ecos.bok.or.kr/api}
+    api-key: ${ECOS_API_KEY:}
+    # 외부 API 타임아웃 10초 (NFR-PF-05)
+    connect-timeout: 10s
+    read-timeout: 10s
   # 시장 데이터 수집 (FR-MK-01 · 06)
   market:
     # 거래일 판정 기준 종목 — 최신 거래일자가 오늘이면 거래일 (01 §14 #23 (c)안)
@@ -90,6 +108,13 @@ assetory:
     late-close-dates: ${ASSETORY_MARKET_LATE_CLOSE_DATES:2026-11-19}
     # 장 마감 지연일의 가드 — 16:30 마감 + 여유 10분
     late-close-guard-time: ${ASSETORY_MARKET_LATE_CLOSE_GUARD_TIME:16:40}
+    # 장 마감 시각 — 근거가 장 마감 이후 공개됐는지 판정하는 기준 (Q-9, ANL-8, FR-CA-08). 위 수집 가드(15:40 · 16:40)와 다른 값
+    # 15:30 정각 공개는 장 마감 이후로 본다. 지연일(late-close-dates)이면 late-close-time을 쓴다
+    close-time: ${ASSETORY_MARKET_CLOSE_TIME:15:30}
+    late-close-time: ${ASSETORY_MARKET_LATE_CLOSE_TIME:16:30}
+    # 지수 · 거시지표(B4) — 매 실행 [기준일 − N일, 기준일]을 받아 업서트한다. 16:00 잠정값은 다음 실행에서 고쳐진다
+    # 가장 오래된 날짜는 직전 값이 없어 저장하지 않는다(최소 2). 45일 ≈ 30거래일 — 소급 이벤트 범위(20거래일)를 덮는다
+    indicator-lookback-days: ${ASSETORY_MARKET_INDICATOR_LOOKBACK_DAYS:45}
   # 일일 자산 기록 배치(거래일 판정 → CODEF → 시세 → 스냅샷) — 기본 비활성. cron은 영업일 16:00 (04 §2)
   sync:
     batch:
@@ -99,6 +124,115 @@ assetory:
       late-close-cron: ${ASSETORY_SYNC_BATCH_LATE_CLOSE_CRON:0 50 16 * * MON-FRI}
       # 동기화 락 충돌(수동 새로고침 진행 중) 시 1회 재시도 전 대기 — CODEF 1회 호출 타임아웃(10초)만큼 (05 §11.2)
       lock-retry-wait-ms: ${ASSETORY_SYNC_BATCH_LOCK_RETRY_WAIT_MS:10000}
+    # 잠정 종가 보정 — 16:00 배치가 읽은 종가는 잠정값이라 다음 거래일 아침에 확정 종가로 직전 기록을 다시 평가한다 (01 §14 #23)
+    # 기본값은 일일 배치 설정(assetory.sync.batch.enabled)을 따른다 — 배치만 켜고 보정을 빠뜨리면 잠정 종가가 남으므로.
+    # 보정만 따로 끄거나 켤 때만 ASSETORY_SYNC_CONFIRM_ENABLED를 준다. 한투 행 확정은 다음 거래일 07:15 이전에 관측 — 늦추려면 cron만 바꾼다
+    confirm:
+      enabled: ${ASSETORY_SYNC_CONFIRM_ENABLED:${assetory.sync.batch.enabled:false}}
+      cron: ${ASSETORY_SYNC_CONFIRM_CRON:0 30 7 * * MON-FRI}
+  # 변화 감지 사용자 설정 (FR-DT-02) — 기본 임계치 · 허용 범위는 detection_rules 테이블(FR-DT-01)
+  detection:
+    # 종목 급등락 알림에서 제외할 수 있는 종목 수 상한
+    max-excluded-tickers: ${ASSETORY_DETECTION_MAX_EXCLUDED_TICKERS:50}
+    # 최초 연동 시 과거 이벤트 소급 범위 — 종목마다 오늘 이하 최신 N거래일 시세 (FR-DT-08, "최근 30일" = 20거래일)
+    backfill-trading-days: ${ASSETORY_DETECTION_BACKFILL_TRADING_DAYS:20}
+  # 원인 분석 (FR-CA-05 · 06) — 근거 0건일 때 시장 동반(MARKET_MOVE) 판정 기준
+  # MARKET_MOVE = |초과 변동| ≤ 이 값 그리고 |초과 변동| ≤ |지수 변동| (경계 포함, EvidenceStatusCalculator)
+  analysis:
+    market-move:
+      # TODO(01-§14 #12) 시장 동반 기준 — 운영 데이터로 조정
+      max-excess-rate: ${ASSETORY_ANALYSIS_MARKET_MOVE_MAX_EXCESS_RATE:2.0}
+    # 연동 직후 소급 분석(날짜 < 오늘 · PENDING) 중 한 번에 근거를 수집할 최대 건수 — |변동률| 큰 순 (Q-4, LLM 미호출)
+    # 분석 1건당 외부 호출 약 8회(DART · 네이버 · 한투 종목정보). 넘는 분석은 PENDING으로 남는다
+    backfill-collect-max: ${ASSETORY_ANALYSIS_BACKFILL_COLLECT_MAX:50}
+    # 원인 분석 상세(S-04)의 지난 이벤트 최대 건수 — 같은 사용자 · 같은 종목, 최신순, 소급 포함 (Q-9, ANL-10)
+    # TODO(Q-9): 문서에 값 없음 — 기본 5는 제안값, S-04 화면 확인 후 조정
+    past-events-max: ${ASSETORY_ANALYSIS_PAST_EVENTS_MAX:5}
+    # PENDING 분석 재시도 (Q-6, ANL-7) — 생성 후 window 안, |변동률| 큰 순 · 1회 max-per-run건을 기존 근거 수집 경로로 다시 수집
+    # 재시도 횟수 컬럼이 없어 시간 창이 상한이다(기본 24시간 ÷ 30분 = 최대 48회). 창이 지난 PENDING은 그대로 둔다(NO_EVIDENCE로 바꾸지 않음)
+    # 켜짐 기본값은 일일 배치 설정을 따른다(잠정 종가 보정과 같은 방식) — 재시도만 끄려면 ASSETORY_ANALYSIS_RETRY_ENABLED=false
+    retry:
+      enabled: ${ASSETORY_ANALYSIS_RETRY_ENABLED:${assetory.sync.batch.enabled:false}}
+      cron: ${ASSETORY_ANALYSIS_RETRY_CRON:0 */30 * * * *}
+      window: ${ASSETORY_ANALYSIS_RETRY_WINDOW:24h}
+      max-per-run: ${ASSETORY_ANALYSIS_RETRY_MAX_PER_RUN:50}
+  # LLM (FR-AI-01 — 원인 요약 · 목표 코멘트 · 월간 총평) — OpenAI Chat Completions를 RestClient로 직접 호출 (Q-5)
+  # 키 · 모델은 환경변수로만. 비어 있어도 기동되고 호출 시 요청 없이 CONFIG_MISSING. 호출 안에서는 재시도하지 않는다
+  ai:
+    openai:
+      base-url: ${ASSETORY_AI_OPENAI_BASE_URL:https://api.openai.com/v1}
+      api-key: ${OPENAI_API_KEY:}
+      # 모델 기본값 없음 — 키를 발급할 때 소형 · 저가 모델로 정한다
+      model: ${ASSETORY_AI_OPENAI_MODEL:}
+      # 요청 max_completion_tokens. 추론 계열 모델은 추론 토큰이 포함돼 작으면 length(TRUNCATED)로 끝날 수 있다 — 실호출로 조정
+      max-output-tokens: ${ASSETORY_AI_OPENAI_MAX_OUTPUT_TOKENS:300}
+      # 있을 때만 요청에 넣는다(일부 모델은 temperature를 받지 않는다)
+      temperature: ${ASSETORY_AI_OPENAI_TEMPERATURE:}
+      # 외부 API 타임아웃 10초 (AGENTS 9장, NFR-PF-05)
+      connect-timeout: ${ASSETORY_AI_OPENAI_CONNECT_TIMEOUT:10s}
+      read-timeout: ${ASSETORY_AI_OPENAI_READ_TIMEOUT:10s}
+    # LLM 출력 금지 패턴 (AI-3, Q-7) — 규칙마다 정규식 목록. 하나라도 찾으면 요약을 버리고 분석은 FAILED (AGENTS 5-D)
+    # 입력 공시 제목 · 종목명은 가린 뒤 검사한다. 문맥이 아니라 형태로 잡는다 — SOLICIT은 "매수" 단어가 아니라 권유형만
+    # 작은따옴표 문자열이라 백슬래시를 그대로 쓴다. 잘못된 정규식이면 기동 실패
+    output-guard:
+      causal:
+        - '때문'
+        - '덕분'
+        - '탓(에|으로|이)'
+        - '(으)?로\s*인(해|하여|한)'
+        - '여파'
+        - '영향으로'
+        - '견인'
+      solicit:
+        - '추천'
+        - '(매수|매도|매입|매각|처분|정리)(하세요|하십시오|해\s*보세요|를\s*(권|고려)|할\s*(만|때|시점)|\s*(기회|시점|타이밍))'
+        - '(사|파|담으)(세요|십시오)'
+        - '권(유|장)(합니다|드립니다|해)'
+        - '비중을\s*(늘|줄|확대|축소)'
+      forecast:
+        - '(오를|내릴|오르|상승할|하락할|반등할|회복할|떨어질|올라갈|이어질|지속될)\s*(것|전망|가능성|수\s*있)'
+        - '(예상|전망|기대)(됩니다|된다|돼|되며|입니다|이다|됨)'
+        - '가능성이\s*(높|크|있)'
+        - '향후\s*(주가|전망|흐름)'
+  # 근거 수집 (FR-CA-01 · 02) — 수집기 구현은 B2(DART) · B3(네이버 뉴스) · B4(ECOS)
+  evidence:
+    # 수집기 외부 호출 1회 연결 · 읽기 타임아웃 (NFR-PF-05). 수집기 전체 실행 시간 합은 공유 분석 락 TTL(5분)보다 작아야 한다
+    call-timeout: ${ASSETORY_EVIDENCE_CALL_TIMEOUT:10s}
+    # 수집 범위 — 이벤트일 기준 전 · 후 달력일. 게시 시각으로 자르지 않는다(장 마감 후 구분은 표시 단계, FR-CA-08)
+    # 01 §14 #7 확정(B0 D4 · N6, 2026-11-16): 공시 · 뉴스 모두 ±1일. 공시는 접수일(rcept_dt, 시각 없음) 기준
+    disclosure:
+      days-before: ${ASSETORY_EVIDENCE_DISCLOSURE_DAYS_BEFORE:1}
+      days-after: ${ASSETORY_EVIDENCE_DISCLOSURE_DAYS_AFTER:1}
+    news:
+      days-before: ${ASSETORY_EVIDENCE_NEWS_DAYS_BEFORE:1}
+      days-after: ${ASSETORY_EVIDENCE_NEWS_DAYS_AFTER:1}
+    # 뉴스 근거 보관 기한 삭제 — NAVER API HUB 검색 결과는 서버 보관 21일 이내(B0 A안). 운영에서 끄지 않는다
+    # 하루 1회 실행이라 실제 최대 보관 = days + 1일 미만 → 20일. created_at 기준, evidence_count는 다시 세지 않는다
+    news-retention:
+      enabled: ${ASSETORY_EVIDENCE_NEWS_RETENTION_ENABLED:true}
+      days: ${ASSETORY_EVIDENCE_NEWS_RETENTION_DAYS:20}
+      cron: ${ASSETORY_EVIDENCE_NEWS_RETENTION_CRON:0 30 3 * * *}
+  # OpenDART — 공시 근거 수집 (FR-CA-01). 키는 환경변수로만. 비어 있어도 기동되고 호출 시 실패한다(분석은 PENDING으로 남는다)
+  dart:
+    base-url: ${ASSETORY_DART_BASE_URL:https://opendart.fss.or.kr/api}
+    api-key: ${DART_API_KEY:}
+    # 공시 유형(pblntf_ty) — B 주요사항 · I 거래소공시 · D 지분공시. 목록 응답에 유형이 없어 유형마다 1회 호출
+    # 01 §14 #11 확정(B0 D4, 2026-11-16): 샘플 이벤트 공시가 I · B · D에 몰렸다. J(공정위) · A(정기)는 제외
+    disclosure-types: ${ASSETORY_DART_DISCLOSURE_TYPES:B,I,D}
+    # 유형 1개당 최대 페이지(100건/페이지). 넘으면 수집기 실패 — 수집 시간이 공유 분석 락 TTL(5분)을 넘지 않게
+    # 최악: 유형 3 × 2페이지 × (연결 10초 + 읽기 10초) + 고유번호(연결 10초 + 읽기 30초) = 160초 < 300초
+    max-pages: ${ASSETORY_DART_MAX_PAGES:2}
+    # 고유번호 ZIP(수 MB) 읽기 타임아웃. 공시 목록은 assetory.evidence.call-timeout(10초)
+    corp-code-timeout: ${ASSETORY_DART_CORP_CODE_TIMEOUT:30s}
+  # NAVER API HUB 뉴스 검색 — 뉴스 근거 수집 (FR-CA-02). 결과는 LLM에 넣지 않고 원문 그대로 표시 전용(B0 A안)
+  # 키(Client ID · Secret)는 환경변수로만. 비어 있어도 기동되고 호출 시 실패한다(분석은 PENDING으로 남는다)
+  naver:
+    base-url: ${ASSETORY_NAVER_BASE_URL:https://naverapihub.apigw.ntruss.com}
+    client-id: ${NAVER_API_HUB_CLIENT_ID:}
+    client-secret: ${NAVER_API_HUB_CLIENT_SECRET:}
+    # 최신순 최대 페이지(100건/페이지). 도달하면 그때까지 받은 기사로 끝낸다(실패 아님) — 락 TTL(5분) 안에 끝나게
+    # 검색어는 종목코드(01 §14 #10). B0 실호출(2026-11-16)에서 종목코드 기사는 하루 60건 안쪽 → 3페이지면 기간 시작까지 닿는다
+    max-pages: ${ASSETORY_NAVER_MAX_PAGES:3}
 
 # JWT — 서명 키는 32바이트 이상. 만료는 FR-AU-02 (AT 30분, RT 14일)
 jwt:

@@ -252,7 +252,7 @@ class StockPriceCollectServiceIntegrationTest extends IntegrationTestSupport {
         doReturn(prices("daily-price-success.json")).when(kis).getDailyPrices(anyString());
         doReturn(KisFixtures.stockInfo("stock-info-etf.json")).when(kis).getStockInfo("069500");
         doReturn(KisFixtures.stockInfo("stock-info-halted.json")).when(kis).getStockInfo("005930"); // ST
-        when(kis.getStockInfo("530000")).thenReturn(new KisStockInfo("530000", "테스트ETN", "EN", null, null, "N", "N", null));
+        when(kis.getStockInfo("530000")).thenReturn(new KisStockInfo("530000", "테스트ETN", "EN", null, null, "N", "N", null, null));
 
         StockPriceCollectResult result = collectService.collect(MON);
 

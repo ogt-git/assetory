@@ -1,6 +1,7 @@
 package com.project.assetory.asset.repository;
 
 import com.project.assetory.asset.domain.Holding;
+import com.project.assetory.asset.domain.SecurityType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -26,6 +27,9 @@ public interface HoldingRepository extends JpaRepository<Holding, Long> {
     List<String> findActiveTickersWithoutSecurityType();
 
     List<Holding> findAllByTickerAndSecurityTypeIsNull(String ticker);
+
+    // 근거 수집 대상의 ETF 판별(FR-CA-01 · 02) — 종목의 사실이라 사용자 무관. 한투 종목 정보로 채운 값만 본다 (01 §14 #24)
+    boolean existsByTickerAndSecurityType(String ticker, SecurityType securityType);
 
     interface TickerName {
         String getTicker();

@@ -12,6 +12,7 @@ import com.project.assetory.connect.repository.ConnectedAccountRepository;
 import com.project.assetory.connect.repository.InstitutionRepository;
 import com.project.assetory.connect.service.StockRefreshService;
 import com.project.assetory.connect.service.StockSyncService;
+import com.project.assetory.detection.service.StockChangeDetectionService;
 import com.project.assetory.global.crypto.HashUtil;
 import com.project.assetory.market.domain.StockPrice;
 import com.project.assetory.market.exception.KisApiException;
@@ -36,6 +37,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -82,6 +84,9 @@ class DailyAssetBatchIntegrationTest extends IntegrationTestSupport {
     @MockitoBean Clock clock;
     @MockitoSpyBean StockSyncService stockSyncService;
     @MockitoSpyBean SnapshotSaveService snapshotSaveService;
+    @MockitoSpyBean StockChangeDetectionService stockChangeDetectionService;
+    @MockitoSpyBean com.project.assetory.market.service.MacroIndicatorCollectService macroIndicatorCollectService;
+    @Autowired JdbcTemplate jdbcTemplate;
 
     @Autowired DailyAssetBatchService batchService;
     @Autowired StockPriceCollectService stockPriceCollectService;
@@ -463,7 +468,7 @@ class DailyAssetBatchIntegrationTest extends IntegrationTestSupport {
             stockPriceRepository.save(prev);
         });
         doReturn(rows(new BigDecimal("12000"), new BigDecimal("12000")).subList(1, 2)).when(kis).getDailyPrices("111111");
-        doReturn(new KisStockInfo("111111", "정지종목", "ST", "0", null, "Y", "N", null)).when(kis).getStockInfo("111111");
+        doReturn(new KisStockInfo("111111", "정지종목", "ST", "0", null, "Y", "N", null, null)).when(kis).getStockInfo("111111");
 
         batchService.run();
 
@@ -485,7 +490,7 @@ class DailyAssetBatchIntegrationTest extends IntegrationTestSupport {
                 new KisDailyPrice(HALT_LAST.minusDays(1), new BigDecimal("11900"), BigDecimal.ZERO, "3", BigDecimal.ZERO, 10L, "00", null),
                 new KisDailyPrice(HALT_LAST.minusDays(2), new BigDecimal("11900"), BigDecimal.ZERO, "3", BigDecimal.ZERO, 10L, "00", null)))
                 .when(kis).getDailyPrices(ticker);
-        doReturn(new KisStockInfo(ticker, "정지종목", "ST", "0", null, "Y", "N", null)).when(kis).getStockInfo(ticker);
+        doReturn(new KisStockInfo(ticker, "정지종목", "ST", "0", null, "Y", "N", null, null)).when(kis).getStockInfo(ticker);
     }
 
     @Test
@@ -610,5 +615,183 @@ class DailyAssetBatchIntegrationTest extends IntegrationTestSupport {
 
         assertThat(snapshotRepository.findAll()).isEmpty();
         verify(snapshotSaveService, never()).save(any(), any());
+    }
+
+    // ---------- 4b. 종목 급등락 감지 (A4) ----------
+
+    // 기준 종목 005930이 오늘 +8% (70,000 → 75,600) — 거래일 판정은 그대로 TRADING_DAY
+    private void referenceTickerMoves() {
+        doReturn(List.of(
+                new KisDailyPrice(DAY, new BigDecimal("75600"), new BigDecimal("5600"), "2", new BigDecimal("8.00"), 1000L, "00", null),
+                new KisDailyPrice(PREV, new BigDecimal("70000"), BigDecimal.ZERO, "3", BigDecimal.ZERO, 900L, "00", null)))
+                .when(kis).getDailyPrices("005930");
+    }
+
+    // 같은 사용자의 두 번째 증권 계좌 — CODEF 응답을 등록하지 않으면 오늘 실패한다
+    private void secondAccount(Long userId) {
+        transactionTemplate.executeWithoutResult(tx -> {
+            User user = userRepository.getReferenceById(userId);
+            var institution = institutionRepository.findByCodefOrgCode("0218").orElseThrow();
+            ConnectedAccount account = connectedAccountRepository.save(
+                    ConnectedAccount.create(user, institution, "fail-" + UUID.randomUUID(), BusinessType.ST));
+            assetRepository.save(Asset.securitiesAccount(user, account, institution, "12345678901"));
+        });
+    }
+
+    private int userEvents(Long userId) {
+        Integer n = jdbcTemplate.queryForObject("select count(*) from user_market_events where user_id = ?", Integer.class, userId);
+        return n == null ? 0 : n;
+    }
+
+    private int detectionEvents(Long userId) {
+        Integer n = jdbcTemplate.queryForObject("select count(*) from detection_events where user_id = ?", Integer.class, userId);
+        return n == null ? 0 : n;
+    }
+
+    @Test
+    @DisplayName("감지: COMPLETE 사용자만 — PARTIAL 사용자는 같은 종목이 움직여도 감지하지 않는다, 요약 감지 건수 · 기존 필드")
+    void detection_completeOnly() throws Exception {
+        referenceTickerMoves();
+        LinkedUser complete = linkedUser(ConnectedAccountStatus.ACTIVE);
+        LinkedUser partial = linkedUser(ConnectedAccountStatus.ACTIVE);
+        secondAccount(partial.userId());
+        codefResponses.put(complete.connectedId(), codefSuccess("100000", item("005930", "10", "700000")));
+        codefResponses.put(partial.connectedId(), codefSuccess("100000", item("005930", "10", "700000")));
+
+        BatchSummary summary = batchService.run();
+
+        assertThat(snapshot(complete.userId()).getStatus()).isEqualTo(SnapshotStatus.COMPLETE);
+        assertThat(snapshot(partial.userId()).getStatus()).isEqualTo(SnapshotStatus.PARTIAL);
+        assertThat(userEvents(complete.userId())).isEqualTo(1);
+        assertThat(detectionEvents(complete.userId())).isEqualTo(1);
+        assertThat(snapshot(complete.userId()).isHasEvent()).isTrue();
+        assertThat(userEvents(partial.userId())).isZero();
+        assertThat(snapshot(partial.userId()).isHasEvent()).isFalse();
+        // 감지 요약은 새 필드로 따로, 기존 요약 필드는 그대로
+        assertThat(summary.stockEvents()).isEqualTo(1);
+        assertThat(summary.detectionErrors()).isZero();
+        assertThat(summary.userErrors()).isZero();
+        assertThat(summary.snapshots()).containsEntry(SnapshotStatus.COMPLETE, 1).containsEntry(SnapshotStatus.PARTIAL, 1);
+        assertThat(summary.accounts()).isEqualTo(3);
+        // 감지 시각 = 배치 기준 시각 T, 날짜 = 기준일
+        assertThat(jdbcTemplate.queryForObject("select detected_at from detection_events where user_id = ?",
+                LocalDateTime.class, complete.userId())).isEqualTo(T);
+    }
+
+    @Test
+    @DisplayName("감지: 같은 날 재실행 → 감지 행 그대로, 요약 감지 0")
+    void detection_rerunIdempotent() throws Exception {
+        referenceTickerMoves();
+        LinkedUser user = linkedUser(ConnectedAccountStatus.ACTIVE);
+        codefResponses.put(user.connectedId(), codefSuccess("100000", item("005930", "10", "700000")));
+
+        assertThat(batchService.run().stockEvents()).isEqualTo(1);
+        BatchSummary second = batchService.run();
+
+        assertThat(second.stockEvents()).isZero();
+        assertThat(userEvents(user.userId())).isEqualTo(1);
+        assertThat(detectionEvents(user.userId())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("감지: 변동이 임계치 미만인 평소 날(기본 시세 +1.71%)은 감지 0 — 기존 배치 결과 그대로")
+    void detection_normalDay_none() throws Exception {
+        LinkedUser user = linkedUser(ConnectedAccountStatus.ACTIVE);
+        codefResponses.put(user.connectedId(), codefSuccess("100000", item("005930", "10", "700000")));
+
+        BatchSummary summary = batchService.run();
+
+        assertThat(summary.stockEvents()).isZero();
+        assertThat(userEvents(user.userId())).isZero();
+        assertThat(snapshot(user.userId()).isHasEvent()).isFalse();
+    }
+
+    @Test
+    @DisplayName("감지: 휴장일에는 감지 단계가 실행되지 않는다")
+    void detection_holiday_notRun() throws Exception {
+        LinkedUser user = linkedUser(ConnectedAccountStatus.ACTIVE);
+        doReturn(rows(new BigDecimal("70000"), new BigDecimal("69000")).subList(1, 2)).when(kis).getDailyPrices("005930");
+
+        BatchSummary summary = batchService.run();
+
+        assertThat(summary.stockEvents()).isZero();
+        assertThat(summary.detectionErrors()).isZero();
+        verify(stockChangeDetectionService, never()).detect(any(), any(), any());
+        assertThat(userEvents(user.userId())).isZero();
+    }
+
+    @Test
+    @DisplayName("감지: 사용자 A 감지 예외 → A 스냅샷은 COMPLETE 그대로 · A 감지 행 없음, B는 정상 감지, 감지 오류 1 (스냅샷 오류 0)")
+    void detection_failureIsolated() throws Exception {
+        referenceTickerMoves();
+        LinkedUser a = linkedUser(ConnectedAccountStatus.ACTIVE);
+        LinkedUser b = linkedUser(ConnectedAccountStatus.ACTIVE);
+        codefResponses.put(a.connectedId(), codefSuccess("100000", item("005930", "10", "700000")));
+        codefResponses.put(b.connectedId(), codefSuccess("100000", item("005930", "3", "210000")));
+        doThrow(new IllegalStateException("테스트 전용")).when(stockChangeDetectionService).detect(eq(a.userId()), any(), any());
+
+        BatchSummary summary = batchService.run();
+
+        assertThat(snapshot(a.userId()).getStatus()).isEqualTo(SnapshotStatus.COMPLETE);
+        assertThat(snapshot(a.userId()).isHasEvent()).isFalse();
+        assertThat(userEvents(a.userId())).isZero();
+        assertThat(snapshot(b.userId()).getStatus()).isEqualTo(SnapshotStatus.COMPLETE);
+        assertThat(userEvents(b.userId())).isEqualTo(1);
+        assertThat(summary.detectionErrors()).isEqualTo(1);
+        assertThat(summary.userErrors()).isZero();
+        assertThat(summary.stockEvents()).isEqualTo(1);
+        assertThat(summary.snapshots()).containsEntry(SnapshotStatus.COMPLETE, 2);
+    }
+
+    // ---------- 지수 · 지표 단계 (B4, 05 §11.2) ----------
+
+    @Test
+    @DisplayName("지수: 정상일 → 시세 다음 단계에서 KOSPI 저장(가장 오래된 날짜 제외 · 변동률 직접 계산), 스냅샷 COMPLETE")
+    void index_savedOnTradingDay() throws Exception {
+        LinkedUser user = linkedUser(ConnectedAccountStatus.ACTIVE);
+        codefResponses.put(user.connectedId(), codefSuccess("100000", item("005930", "10", "700000")));
+        doReturn(List.of(new com.project.assetory.market.kis.KisIndexDaily(DAY, new BigDecimal("2601.00"), null),
+                new com.project.assetory.market.kis.KisIndexDaily(PREV, new BigDecimal("2550.00"), null)))
+                .when(kis).getIndexDaily(eq("0001"), any(), any());
+
+        batchService.run();
+
+        verify(kis).getIndexDaily("0001", DAY.minusDays(45), DAY);
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "select value, change_rate, source from macro_indicators where indicator_code = 'KOSPI' and base_date = ?", DAY);
+        assertThat((BigDecimal) row.get("value")).isEqualByComparingTo("2601.00");
+        assertThat((BigDecimal) row.get("change_rate")).isEqualByComparingTo("2.0000"); // 51 ÷ 2550
+        assertThat(row).containsEntry("source", "KIS");
+        assertThat(jdbcTemplate.queryForObject("select count(*) from macro_indicators where indicator_code = 'KOSPI' and base_date = ?",
+                Integer.class, PREV)).isZero();
+        assertThat(snapshot(user.userId()).getStatus()).isEqualTo(SnapshotStatus.COMPLETE);
+    }
+
+    @Test
+    @DisplayName("지수: 단계 전체가 예외를 내도 그날 스냅샷은 COMPLETE로 커밋된다 (자산 기록 판정과 무관, 5-C)")
+    void index_stepFailure_snapshotUnaffected() throws Exception {
+        LinkedUser user = linkedUser(ConnectedAccountStatus.ACTIVE);
+        codefResponses.put(user.connectedId(), codefSuccess("100000", item("005930", "10", "700000")));
+        doThrow(new IllegalStateException("테스트 전용 — 지수 단계 실패")).when(macroIndicatorCollectService).collect(any());
+
+        BatchSummary summary = batchService.run();
+
+        assertThat(snapshot(user.userId()).getStatus()).isEqualTo(SnapshotStatus.COMPLETE);
+        assertThat(snapshot(user.userId()).getSecuritiesAmount()).isEqualByComparingTo("712000");
+        assertThat(summary.snapshots()).containsEntry(SnapshotStatus.COMPLETE, 1);
+        assertThat(summary.userErrors()).isZero();
+        verify(macroIndicatorCollectService).collect(DAY);
+    }
+
+    @Test
+    @DisplayName("지수: 휴장일 → 배치가 앞에서 끝나 지수 호출 없음")
+    void index_holiday_noCall() throws Exception {
+        linkedUser(ConnectedAccountStatus.ACTIVE);
+        doReturn(rows(new BigDecimal("70000"), new BigDecimal("69000")).subList(1, 2)).when(kis).getDailyPrices("005930");
+
+        batchService.run();
+
+        verify(kis, never()).getIndexDaily(anyString(), any(), any());
+        verify(macroIndicatorCollectService, never()).collect(any());
     }
 }

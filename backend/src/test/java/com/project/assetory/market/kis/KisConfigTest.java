@@ -47,6 +47,18 @@ class KisConfigTest {
     }
 
     @Test
+    @DisplayName("업종지수 코드 기본값 KOSPI 0001 · KOSDAQ 1001(미확인), 환경변수로 바꿀 수 있다 (B4)")
+    void indexCodes() {
+        runner.run(context -> {
+            KisIndexCodes codes = context.getBean(KisIndexCodes.class);
+            assertThat(codes.codeOf(com.project.assetory.market.domain.IndicatorCode.KOSPI)).isEqualTo("0001");
+            assertThat(codes.codeOf(com.project.assetory.market.domain.IndicatorCode.KOSDAQ)).isEqualTo("1001");
+        });
+        runner.withPropertyValues("ASSETORY_KIS_INDEX_CODE_KOSDAQ=2001").run(context ->
+                assertThat(context.getBean(KisIndexCodes.class).kosdaq()).isEqualTo("2001"));
+    }
+
+    @Test
     @DisplayName("환경변수만으로 모의 도메인 · 간격을 바꿀 수 있다")
     void overrideByEnv() {
         runner.withPropertyValues("KIS_BASE_URL=https://openapivts.koreainvestment.com:29443", "KIS_CALL_INTERVAL_MS=500")

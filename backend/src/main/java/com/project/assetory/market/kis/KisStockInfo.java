@@ -10,6 +10,7 @@ package com.project.assetory.market.kis;
  * @param tradingHalted     tr_stop_yn 거래정지여부
  * @param administrativeIssue admn_item_yn 관리종목여부
  * @param delistingDate     lstg_abol_dt 상장폐지일자 (yyyyMMdd 원문)
+ * @param marketIdCode      mket_id_cd 시장ID (STK 유가증권 · KSQ 코스닥 — 실호출 V2-b). 비교 지수 변환은 KisMarketCode
  */
 public record KisStockInfo(
         String ticker,
@@ -19,5 +20,6 @@ public record KisStockInfo(
         String etfTypeCode,
         String tradingHalted,
         String administrativeIssue,
-        String delistingDate
+        String delistingDate,
+        String marketIdCode
 ) {}

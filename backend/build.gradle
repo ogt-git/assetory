@@ -53,10 +53,15 @@ dependencies {
 	testAnnotationProcessor 'org.projectlombok:lombok'
 }
 
+// 모든 테스트 JVM(test · kisLiveTest · evidenceLiveTest · llmLiveTest)의 기본 시간대를 Asia/Seoul로 고정 — @SpringBootTest는 main()을 거치지 않는다 (AppTimeZone)
+tasks.withType(Test).configureEach {
+	systemProperty 'user.timezone', 'Asia/Seoul'
+}
+
 tasks.named('test') {
-	// 한투 실호출 검증(@Tag("kis-live"))은 기본 테스트에서 제외 — kisLiveTest로 따로 실행
+	// 실호출 검증(kis-live · evidence-live · llm-live)은 기본 테스트에서 제외 — 각각 kisLiveTest · evidenceLiveTest · llmLiveTest로 따로 실행
 	useJUnitPlatform {
-		excludeTags 'kis-live'
+		excludeTags 'kis-live', 'evidence-live', 'llm-live'
 	}
 }
 
@@ -68,6 +73,36 @@ tasks.register('kisLiveTest', Test) {
 	classpath = sourceSets.test.runtimeClasspath
 	useJUnitPlatform {
 		includeTags 'kis-live'
+	}
+	testLogging {
+		showStandardStreams = true
+	}
+	outputs.upToDateWhen { false }
+}
+
+// 근거 소스(DART · ECOS · 네이버 API HUB) 실호출 검증 — 키가 없는 소스는 "미실행"으로 기록 (docs/ops/evidence-source-verification.md)
+tasks.register('evidenceLiveTest', Test) {
+	description = '근거 소스(DART · ECOS · 네이버) 실호출 검증'
+	group = 'verification'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform {
+		includeTags 'evidence-live'
+	}
+	testLogging {
+		showStandardStreams = true
+	}
+	outputs.upToDateWhen { false }
+}
+
+// OpenAI 실호출 검증(Q-5 · AI-7) — OPENAI_API_KEY가 있을 때만 실행된다. 과금 호출 2회(L1 · L3) + 잘못된 키 1회(L2)
+tasks.register('llmLiveTest', Test) {
+	description = 'OpenAI Chat Completions 실호출 검증'
+	group = 'verification'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform {
+		includeTags 'llm-live'
 	}
 	testLogging {
 		showStandardStreams = true

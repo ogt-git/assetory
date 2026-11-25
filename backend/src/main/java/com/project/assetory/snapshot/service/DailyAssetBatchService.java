@@ -14,10 +14,12 @@ import com.project.assetory.connect.exception.CodefSyncLockConflictException;
 import com.project.assetory.connect.repository.ConnectedAccountRepository;
 import com.project.assetory.connect.repository.ConnectedAccountRepository.SnapshotTarget;
 import com.project.assetory.connect.service.StockSyncService;
+import com.project.assetory.detection.service.StockChangeDetectionService;
 import com.project.assetory.market.config.MarketProperties;
 import com.project.assetory.market.domain.StockPrice;
 import com.project.assetory.market.domain.TradingDayStatus;
 import com.project.assetory.market.repository.StockPriceRepository;
+import com.project.assetory.market.service.MacroIndicatorCollectService;
 import com.project.assetory.market.service.StockPriceCollectResult;
 import com.project.assetory.market.service.StockPriceCollectResult.TickerResult;
 import com.project.assetory.market.service.StockPriceCollectResult.TickerStatus;
@@ -76,13 +78,17 @@ public class DailyAssetBatchService {
     private final MeterRegistry meterRegistry;
     private final Clock clock;
     private final long lockRetryWaitMs;
+    private final StockChangeDetectionService stockChangeDetectionService;
+    private final MacroIndicatorCollectService macroIndicatorCollectService;
 
     public DailyAssetBatchService(TradingDayService tradingDayService, StockSyncService stockSyncService,
                                   StockPriceCollectService stockPriceCollectService, SnapshotSaveService snapshotSaveService,
                                   ConnectedAccountRepository connectedAccountRepository, AssetRepository assetRepository,
                                   HoldingRepository holdingRepository, StockPriceRepository stockPriceRepository,
                                   MarketProperties marketProperties, MeterRegistry meterRegistry, Clock clock,
-                                  @Value("${assetory.sync.batch.lock-retry-wait-ms:10000}") long lockRetryWaitMs) {
+                                  @Value("${assetory.sync.batch.lock-retry-wait-ms:10000}") long lockRetryWaitMs,
+                                  StockChangeDetectionService stockChangeDetectionService,
+                                  MacroIndicatorCollectService macroIndicatorCollectService) {
         this.tradingDayService = tradingDayService;
         this.stockSyncService = stockSyncService;
         this.stockPriceCollectService = stockPriceCollectService;
@@ -95,11 +101,18 @@ public class DailyAssetBatchService {
         this.meterRegistry = meterRegistry;
         this.clock = clock;
         this.lockRetryWaitMs = lockRetryWaitMs;
+        this.stockChangeDetectionService = stockChangeDetectionService;
+        this.macroIndicatorCollectService = macroIndicatorCollectService;
     }
 
+    /**
+     * @param stockEvents     4b 급등락 감지로 새로 만든 사용자 이벤트 수 (A4)
+     * @param detectionErrors 4b 감지 중 예외가 난 사용자 수 — 스냅샷 오류(userErrors)와 따로 센다
+     */
     public record BatchSummary(TradingDayStatus tradingDay, int accounts, Map<AccountStatus, Integer> accountResults,
                                int priceCollected, int priceHalted, int priceFailed,
-                               Map<SnapshotStatus, Integer> snapshots, int userErrors) {}
+                               Map<SnapshotStatus, Integer> snapshots, int userErrors,
+                               int stockEvents, int detectionErrors) {}
 
     // 이번 실행에서 계좌 1개를 수집한 결과 — SUCCESS일 때만 예수금 · 종목(종목코드 · 수량)을 담는다
     private record CollectedAccount(Long userId, Long assetId, AccountStatus status,
@@ -169,6 +182,15 @@ public class DailyAssetBatchService {
         StockPriceCollectResult prices = stockPriceCollectService.collect(snapshotDate);
         LocalDateTime collectedAt = LocalDateTime.now(clock);
 
+        // 3b. 지수 · 지표 (B4, FR-MK-02 · 05 §11.2) — 시세 다음, 평가 · 판정 전.
+        // 사용자 자산이 아니라 자산 기록 판정(COMPLETE · PARTIAL · FAILED)과 무관하다(5-C). 서비스는 트랜잭션 밖에서 돌고
+        // 지표마다 따로 커밋하며, 여기서 어떤 예외가 나도 다음 단계로 넘어간다(로그 · external.api 메트릭만)
+        try {
+            macroIndicatorCollectService.collect(snapshotDate);
+        } catch (RuntimeException e) {
+            log.error("[DailyBatch] 지수 · 지표 단계 실패 — 자산 기록은 계속 date={} error={}", snapshotDate, e.getClass().getSimpleName());
+        }
+
         // 4. 사용자별 스냅샷 — 사용자 단위 실패 격리 (예외를 FAILED 스냅샷으로 바꾸지 않는다)
         Map<Long, List<Account>> accountsByUser = new HashMap<>();
         Map<String, Optional<BigDecimal>> priceCache = new HashMap<>();
@@ -186,16 +208,34 @@ public class DailyAssetBatchService {
         userIds.addAll(manualsByUser.keySet());
         Map<SnapshotStatus, Integer> snapshots = new EnumMap<>(SnapshotStatus.class);
         int userErrors = 0;
+        List<Long> completeUserIds = new ArrayList<>();
         for (Long userId : userIds) {
             try {
                 SnapshotInput input = new SnapshotInput(snapshotDate, collectedAt,
                         accountsByUser.getOrDefault(userId, List.of()), manualsByUser.getOrDefault(userId, List.of()));
-                snapshotSaveService.save(userId, input)
-                        .map(AssetSnapshot::getStatus)
-                        .ifPresent(status -> snapshots.merge(status, 1, Integer::sum));
+                Optional<SnapshotStatus> status = snapshotSaveService.save(userId, input).map(AssetSnapshot::getStatus);
+                status.ifPresent(s -> snapshots.merge(s, 1, Integer::sum));
+                // 같은 날 재실행에서 기존 COMPLETE를 유지한 경우도 COMPLETE로 돌아온다
+                if (status.orElse(null) == SnapshotStatus.COMPLETE) {
+                    completeUserIds.add(userId);
+                }
             } catch (RuntimeException e) {
                 userErrors++;
                 log.error("[DailyBatch] 사용자 스냅샷 처리 실패 — 행을 만들지 않고 계속 userId={} error={}",
+                        userId, e.getClass().getSimpleName());
+            }
+        }
+
+        // 4b. 종목 급등락 감지 (A4, FR-DT-03 · 06 · 07) — 그날 COMPLETE인 사용자만 (10주차 D2).
+        // 스냅샷은 사용자마다 이미 커밋됐다. 감지는 사용자마다 별도 트랜잭션(REQUIRES_NEW)이고, 실패는 그 사용자만 롤백하고 계속한다
+        int stockEvents = 0;
+        int detectionErrors = 0;
+        for (Long userId : completeUserIds) {
+            try {
+                stockEvents += stockChangeDetectionService.detect(userId, snapshotDate, batchTime);
+            } catch (RuntimeException e) {
+                detectionErrors++;
+                log.error("[DailyBatch] 급등락 감지 실패 — 스냅샷은 유지하고 계속 userId={} error={}",
                         userId, e.getClass().getSimpleName());
             }
         }
@@ -208,10 +248,10 @@ public class DailyAssetBatchService {
         collected.forEach(a -> accountResults.merge(a.status(), 1, Integer::sum));
         BatchSummary summary = new BatchSummary(tradingDay, accountTargets.size(), accountResults,
                 (int) prices.count(TickerStatus.COLLECTED), (int) prices.count(TickerStatus.HALTED),
-                (int) prices.count(TickerStatus.FAILED), snapshots, userErrors);
-        log.info("[DailyBatch] 완료 date={} 연동={} 계좌결과={} 시세(성공/정지/실패)={}/{}/{} 시세중단={} 스냅샷={} 사용자오류={} 소요={}ms",
+                (int) prices.count(TickerStatus.FAILED), snapshots, userErrors, stockEvents, detectionErrors);
+        log.info("[DailyBatch] 완료 date={} 연동={} 계좌결과={} 시세(성공/정지/실패)={}/{}/{} 시세중단={} 스냅샷={} 사용자오류={} 소요={}ms 감지={} 감지오류={}",
                 snapshotDate, summary.accounts(), accountResults, summary.priceCollected(), summary.priceHalted(),
-                summary.priceFailed(), prices.aborted(), snapshots, userErrors, elapsed.toMillis());
+                summary.priceFailed(), prices.aborted(), snapshots, userErrors, elapsed.toMillis(), stockEvents, detectionErrors);
         return summary;
     }
 
@@ -327,7 +367,7 @@ public class DailyAssetBatchService {
     }
 
     private static BatchSummary emptySummary(TradingDayStatus tradingDay) {
-        return new BatchSummary(tradingDay, 0, Map.of(), 0, 0, 0, Map.of(), 0);
+        return new BatchSummary(tradingDay, 0, Map.of(), 0, 0, 0, Map.of(), 0, 0, 0);
     }
 
     private static void sleep(long millis) {

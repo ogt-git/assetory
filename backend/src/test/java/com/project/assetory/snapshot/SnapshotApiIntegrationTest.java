@@ -1,6 +1,11 @@
 package com.project.assetory.snapshot;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.project.assetory.analysis.domain.Direction;
+import com.project.assetory.analysis.domain.StockEventAnalysis;
+import com.project.assetory.analysis.domain.UserMarketEvent;
+import com.project.assetory.analysis.repository.StockEventAnalysisRepository;
+import com.project.assetory.analysis.repository.UserMarketEventRepository;
 import com.project.assetory.asset.domain.Asset;
 import com.project.assetory.asset.domain.AssetType;
 import com.project.assetory.asset.domain.Holding;
@@ -261,7 +266,7 @@ class SnapshotApiIntegrationTest extends IntegrationTestSupport {
         assertThat(body).doesNotContain(ACCOUNT_NUMBER);
         assertThat(data.fieldNames()).toIterable().containsExactlyInAnyOrder("date", "status", "missing", "hasEvent",
                 "baseDate", "totalAsset", "referenceDate", "dayChangeAmount", "dayChangeRate", "marketChangeAmount",
-                "otherChangeAmount", "assetClasses", "assets");
+                "otherChangeAmount", "assetClasses", "assets", "events");
         assertThat(data.get("baseDate").asText()).isEqualTo("2026-09-01");
         assertThat(data.get("assetClasses").get("securities").get("amount").decimalValue()).isEqualByComparingTo("11000");
         assertThat(data.get("assetClasses").get("securities").get("changeAmount").decimalValue()).isEqualByComparingTo("1000");
@@ -280,6 +285,41 @@ class SnapshotApiIntegrationTest extends IntegrationTestSupport {
         assertThat(partial.get("missing").asBoolean()).isTrue();
         assertThat(partial.get("assets")).isEmpty();
         assertThat(partial.get("assetClasses").isNull()).isTrue();
+    }
+
+    @Autowired StockEventAnalysisRepository analysisRepository;
+    @Autowired UserMarketEventRepository userMarketEventRepository;
+
+    @Test
+    @DisplayName("날짜별 상세: events 구조 — 그날 내 이벤트 필드, 이벤트 없는 날 · 누락일은 [] (기존 필드 그대로)")
+    void records_detailEvents() throws Exception {
+        Login login = login();
+        septemberWithDetails(login);
+        String ticker = "E" + UUID.randomUUID().toString().replace("-", "").substring(0, 5).toUpperCase();
+        transactionTemplate.executeWithoutResult(status -> {
+            var analysis = analysisRepository.save(StockEventAnalysis.create(ticker, "테스트 종목", LocalDate.of(2026, 9, 3),
+                    new BigDecimal("7.0000")));
+            userMarketEventRepository.save(UserMarketEvent.create(userRepository.getReferenceById(login.userId()), analysis,
+                    Direction.UP, new BigDecimal("5"), new BigDecimal("700"), new BigDecimal("6.36"), null, false));
+            snapshotRepository.findByUserIdAndSnapshotDate(login.userId(), LocalDate.of(2026, 9, 3))
+                    .ifPresent(s -> s.markEvent());
+        });
+
+        JsonNode data = okData(authedGet(login, RECORDS + "/2026-09-03"));
+
+        assertThat(data.get("hasEvent").asBoolean()).isTrue();
+        // 기존 필드 그대로 — 예수금 110,000 + 종목 11,000 + 현금 500,000
+        assertThat(data.get("totalAsset").decimalValue()).isEqualByComparingTo("621000");
+        JsonNode event = data.get("events").get(0);
+        assertThat(event.fieldNames()).toIterable().containsExactlyInAnyOrder("ticker", "stockName", "changeRate",
+                "direction", "changeAmount", "positionRatio", "backfilled");
+        assertThat(event.get("ticker").asText()).isEqualTo(ticker);
+        assertThat(event.get("direction").asText()).isEqualTo("UP");
+        assertThat(event.get("changeRate").decimalValue()).isEqualByComparingTo("7");
+        assertThat(event.get("changeAmount").decimalValue()).isEqualByComparingTo("700");
+        assertThat(event.get("backfilled").asBoolean()).isFalse();
+        assertThat(okData(authedGet(login, RECORDS + "/2026-09-01")).get("events")).isEmpty();
+        assertThat(okData(authedGet(login, RECORDS + "/2026-09-02")).get("events")).isEmpty();
     }
 
     @Test

@@ -8,6 +8,7 @@ import com.project.assetory.market.kis.KisApiClient;
 import com.project.assetory.market.kis.KisDailyPrice;
 import com.project.assetory.market.kis.KisStockInfo;
 import com.project.assetory.market.repository.StockPriceRepository;
+import com.project.assetory.market.service.ClosePriceConfirmResult.ClosePriceChange;
 import com.project.assetory.market.service.StockPriceCollectResult.FailReason;
 import com.project.assetory.market.service.StockPriceCollectResult.SecurityTypeResult;
 import com.project.assetory.market.service.StockPriceCollectResult.TickerResult;
@@ -18,13 +19,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeSet;
 
 /**
  * 보유 종목 시세 수집 (FR-MK-01 · 05 · 07, stock_prices) + STOCK/ETF 판별 (FR-CN-03, holdings.security_type).
@@ -101,6 +105,79 @@ public class StockPriceCollectService {
                 result.count(TickerStatus.FAILED), aborted,
                 securityTypes.classified(), securityTypes.unknownGroup(), securityTypes.failed());
         return result;
+    }
+
+    /**
+     * 잠정 종가 확정 재조회 (01 §14 #23, kis-verification V4) — 16:00에 저장한 지난 거래일 행을 한투 값으로 다시 맞춘다.
+     * 한투 일별 시세의 거래일 행은 다음 거래일 아침에 확정되고 확정값 = KRX 종가다.
+     * - 대상: 그날 잠정 행이 있는 종목만. 행이 없으면(거래정지 · 실패) 호출하지 않고 새 행도 만들지 않는다
+     * - 그날 행 · 직전 거래일 행이 응답에 없으면 바꾸지 않고 실패로 센다 — 0 채움 금지 (AGENTS 5-C)
+     * - 오늘 · 미래 날짜는 아직 확정 전이라 하지 않는다
+     * - 종목 단위로 실패를 격리하고, 연속 실패가 max-consecutive-failures회면 남은 호출을 멈춘다
+     *
+     * @return 종가가 바뀐 종목의 (잠정, 확정) — 그날 기록 재평가의 입력
+     */
+    public ClosePriceConfirmResult confirmClose(LocalDate tradeDate, Collection<String> tickers) {
+        if (!tradeDate.isBefore(LocalDate.now(clock))) {
+            log.warn("[Market] 종가 확정 — 오늘 · 미래 날짜는 확정 전이라 건너뜀 tradeDate={}", tradeDate);
+            return ClosePriceConfirmResult.skipped(tradeDate);
+        }
+        Map<String, ClosePriceChange> changes = new LinkedHashMap<>();
+        int checked = 0;
+        int failed = 0;
+        int consecutiveFailures = 0;
+        boolean aborted = false;
+
+        // 종목코드 오름차순 — 실행마다 같은 순서
+        for (String ticker : new TreeSet<>(tickers)) {
+            Optional<StockPrice> stored = stockPriceRepository.findByTickerAndTradeDate(ticker, tradeDate);
+            if (stored.isEmpty()) {
+                continue;
+            }
+            checked++;
+            if (aborted) {
+                failed++;
+                continue;
+            }
+            List<KisDailyPrice> prices;
+            try {
+                prices = kis.getDailyPrices(ticker);
+                consecutiveFailures = 0;
+            } catch (RuntimeException e) {
+                failed++;
+                if (++consecutiveFailures >= properties.maxConsecutiveFailures()) {
+                    aborted = true;
+                    log.warn("[Market] 종가 확정 — 호출 연속 {}회 실패, 남은 종목 중단 tradeDate={}", consecutiveFailures, tradeDate);
+                }
+                continue;
+            }
+            int index = indexOf(prices, tradeDate);
+            // 응답은 최신 거래일부터 — 바로 다음 행이 직전 거래일
+            if (index < 0 || index + 1 >= prices.size()) {
+                failed++;
+                log.warn("[Market] 종가 확정 — 응답에 그날 · 직전 거래일 행 없음 ticker={} tradeDate={}", ticker, tradeDate);
+                continue;
+            }
+            BigDecimal provisional = stored.get().getClosePrice();
+            KisDailyPrice confirmed = prices.get(index);
+            upsert(ticker, stored.get().getStockName(), confirmed, prices.get(index + 1));
+            if (provisional.compareTo(confirmed.closePrice()) != 0) {
+                changes.put(ticker, new ClosePriceChange(provisional, confirmed.closePrice()));
+            }
+        }
+
+        log.info("[Market] 종가 확정 tradeDate={} 확인={} 종가변경={} 실패={} 중단={}",
+                tradeDate, checked, changes.size(), failed, aborted);
+        return new ClosePriceConfirmResult(tradeDate, Map.copyOf(changes), checked, failed, aborted);
+    }
+
+    private static int indexOf(List<KisDailyPrice> prices, LocalDate tradeDate) {
+        for (int i = 0; i < prices.size(); i++) {
+            if (prices.get(i).tradeDate().equals(tradeDate)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**

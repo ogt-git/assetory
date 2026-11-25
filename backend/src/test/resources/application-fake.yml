@@ -28,6 +28,22 @@ assetory:
     batch:
       # 일일 배치(16:00) 끔 — 기록은 데모 시드가 넣는다
       enabled: false
+  evidence:
+    # 뉴스 보관 기한 삭제 스케줄 끔 — 매번 새 DB라 지울 것이 없다
+    news-retention:
+      enabled: false
+  analysis:
+    # PENDING 근거 재수집 스케줄 끔 — 일일 배치 설정을 따라 이미 꺼지지만 명시한다
+    retry:
+      enabled: false
+  # 근거 · 지표 외부 API(B5) — base-url은 FakeEvidenceConfig가 가짜 서버 주소로 바꾼다. 키는 fake 전용 더미 값(가짜 서버가 이 값을 기대한다)
+  dart:
+    api-key: fake-only-dart-api-key
+  naver:
+    client-id: fake-only-naver-client-id
+    client-secret: fake-only-naver-client-secret
+  ecos:
+    api-key: fake-only-ecos-api-key
 
 jwt:
   secret: fake-only-jwt-secret-not-for-real-use-0123456789

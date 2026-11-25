@@ -14,7 +14,7 @@
 ## 3. 프로젝트 구조
 - `backend/` Spring Boot · `frontend/` React(Vite) · `docs/` 설계 문서 · `docker-compose.yml` 로컬 MySQL · Redis
 - 백엔드: `com.project.assetory.<도메인>/{controller,service,repository,domain,dto,exception}` 도메인 우선 분리. 공통은 `global/`.
-  - 현재 도메인: `auth` · `user`(회원 · 인증), `connect`(기관 연동 · CODEF), `asset`(자산 · 보유 종목), `market`(시장 데이터 — 한투 `kis` 클라이언트 · `stock_prices` · 거래일 판정), `snapshot`(일별 자산 기록 · 일일 배치)
+  - 현재 도메인: `auth` · `user`(회원 · 인증), `connect`(기관 연동 · CODEF), `asset`(자산 · 보유 종목), `market`(시장 데이터 — 한투 `kis` 클라이언트 · `stock_prices` · 거래일 판정), `snapshot`(일별 자산 기록 · 일일 배치), `detection`(급등락 감지 · 소급 이벤트 · 감지 설정), `analysis`(원인 분석 — DART · 네이버 클라이언트 · 근거 수집 · 재시도 · 상세 조회), `ai`(LLM 공통 — OpenAI 클라이언트 · 출력 검사 · 한도. 다른 도메인을 import하지 않는다 — 기능 → `ai` 방향만, `AiPackageDependencyTest`)
 - 프론트: `src/app`(라우터 · 프로바이더), `src/features/<도메인>`, `src/pages/<화면>`, `src/shared`.
 
 | 찾는 것 | 문서 |
@@ -49,6 +49,7 @@
 - 비교 · 감지 · 결산 · 목표 계산은 **COMPLETE 스냅샷만** 쓴다. 비교 기준은 **직전 COMPLETE**. 월간 결산의 월초 · 월말 = 그 달 첫 · 마지막 COMPLETE.
 - 수집 실패 자산을 직전 값으로 이월하지 않는다. 누락 · 해석 불가 값을 0으로 채우지 않는다(정상 0은 유효) → null + 실패 처리.
 - 공식 일별 기록은 그 배치 실행의 수집 결과로만 판정한다. 수동 새로고침은 현재값만 갱신하고 스냅샷 · 감지 · 알림을 만들지 않는다.
+  - 유일한 예외: 다음 거래일 07:30 **잠정 종가 보정**은 확정 종가로 그날 기록의 가격에서 나온 값(금액 · 시장가격 영향 등)만 다시 계산한다. 수량 · 수집 상태는 바꾸지 않는다(01 §14 #23).
 - 사용자 자산 기록은 연동일부터. 과거 자산을 소급 생성하지 않는다(종목 시세 · 이벤트만 소급, 소급 이벤트는 알림 없음).
 - 기타 자산 변화 = 총자산 변화 − 시장가격 영향. 원인을 추측하는 문장을 만들지 않는다.
 - 평가금액 = 한투 종가 × 같은 기준 시점 보유수량.
@@ -132,6 +133,9 @@ cd backend && ./gradlew bootRun            # 기본 프로필 local, 루트 .env
 cd backend && ./gradlew bootTestRun        # fake 프로필 — 데모 계정 · 가짜 한투 · CODEF, 매번 새 DB (Docker 필요, docs/ops/fake-profile.md)
 cd backend && ./gradlew test               # 전체 테스트 (Docker 필요)
 cd backend && ./gradlew test --tests '*StockAssetParserTest'   # 단일 테스트
+cd backend && ./gradlew kisLiveTest        # 한투 실호출 검증 — 사용자가 직접 실행 (KIS_APP_KEY · KIS_APP_SECRET, 결과 build/kis-live/, docs/ops/kis-verification.md)
+cd backend && ./gradlew evidenceLiveTest   # DART · ECOS · 네이버 실호출 검증 — 사용자가 직접 실행 (DART_API_KEY · ECOS_API_KEY · NAVER_API_HUB_CLIENT_ID · NAVER_API_HUB_CLIENT_SECRET, 키 없는 소스는 미실행, 결과 build/evidence-live/, docs/ops/evidence-source-verification.md)
+cd backend && ./gradlew llmLiveTest        # OpenAI 실호출 검증 — 과금 발생, 사용자가 직접 실행 (OPENAI_API_KEY · ASSETORY_AI_OPENAI_MODEL, 결과 build/llm-live/)
 cd backend && ./gradlew build              # 빌드 + 테스트
 cd frontend && npm ci && npm run dev       # 개발 서버
 cd frontend && npm run lint -- --deny-warnings && npm run typecheck && npm run build   # CI와 동일

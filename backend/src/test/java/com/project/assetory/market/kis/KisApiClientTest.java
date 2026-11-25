@@ -226,6 +226,35 @@ class KisApiClientTest {
     }
 
     @Test
+    @DisplayName("종목 기본정보: 시장 구분(mket_id_cd)을 원문 코드 그대로 담는다 — 다른 필드 파싱은 그대로")
+    void stockInfo_marketIdCode() {
+        server.expect(requestTo(startsWith(KisTestSupport.BASE_URL + "/uapi/domestic-stock/v1/quotations/search-stock-info")))
+                .andRespond(withSuccess(fixture("stock-info-kosdaq.json"), MediaType.APPLICATION_JSON));
+
+        KisStockInfo info = client.getStockInfo("000000");
+
+        assertThat(info.marketIdCode()).isEqualTo("KSQ");
+        assertThat(info.name()).isEqualTo("테스트코스닥");
+        assertThat(info.securityGroupCode()).isEqualTo("ST");
+        assertThat(info.tradingHalted()).isEqualTo("N");
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("종목 기본정보: 시장 구분 필드가 없는 응답이면 null — 다른 필드 파싱은 그대로")
+    void stockInfo_marketIdCodeMissing() {
+        server.expect(requestTo(startsWith(KisTestSupport.BASE_URL + "/uapi/domestic-stock/v1/quotations/search-stock-info")))
+                .andRespond(withSuccess(fixture("stock-info-halted.json"), MediaType.APPLICATION_JSON));
+
+        KisStockInfo info = client.getStockInfo("000000");
+
+        assertThat(info.marketIdCode()).isNull();
+        assertThat(info.securityGroupCode()).isEqualTo("ST");
+        assertThat(info.tradingHalted()).isEqualTo("Y");
+        server.verify();
+    }
+
+    @Test
     @DisplayName("http.client.requests의 uri 태그는 URI 템플릿 — 종목코드 · 쿼리 값이 남지 않는다")
     void httpClientMetric_uriTemplate() {
         SimpleMeterRegistry httpMeters = new SimpleMeterRegistry();

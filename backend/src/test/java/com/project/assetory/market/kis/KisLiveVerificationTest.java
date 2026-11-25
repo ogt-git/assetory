@@ -29,6 +29,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -129,6 +130,32 @@ class KisLiveVerificationTest {
     }
 
     @Test
+    @Order(99)
+    @DisplayName("V2-b — 종목정보 원문의 시장 구분 후보 필드 (Q-2: KOSPI · KOSDAQ · ETF)")
+    void v2b_marketFields() {
+        // KisStockInfo는 시장 필드를 담지 않아 원문을 직접 본다. 공개 종목 정보만 찍는다(키 · 토큰 없음)
+        line("\n## V2-b 종목정보 시장 구분 후보 필드 (search-stock-info 원문)");
+        java.util.regex.Pattern candidate = java.util.regex.Pattern.compile("(?i).*(mket|mrkt|excg|kospi|kosdaq|ksdq|idx|lstg_dt|stck_kind|std_pdno).*");
+        for (String t : List.of("005930", "086520", "069500", "122630")) {
+            JsonNode body = directGet("/uapi/domestic-stock/v1/quotations/search-stock-info?PRDT_TYPE_CD={p}&PDNO={t}",
+                    Map.of("p", "300", "t", t), "CTPF1002R");
+            JsonNode output = body.path("output");
+            line("\n### " + t + " " + output.path("prdt_abrv_name").asText() + " (rt_cd=" + body.path("rt_cd").asText()
+                    + ", msg_cd=" + body.path("msg_cd").asText() + ")");
+            line("| 필드 | 값 |\n|---|---|");
+            int before = REPORT.length();
+            output.fieldNames().forEachRemaining(name -> {
+                if (candidate.matcher(name).matches()) {
+                    line("| " + name + " | " + output.path(name).asText() + " |");
+                }
+            });
+            if (REPORT.length() == before) {
+                line("| (시장 필드) | 없음 |");
+            }
+        }
+    }
+
+    @Test
     @Order(3)
     @DisplayName("V4 · V5 — 최신 거래일 행 기록 (16:00 이후 · 다음 날 · 주말에 각각 실행해 비교)")
     void v4v5_latestRows() throws IOException {
@@ -197,6 +224,77 @@ class KisLiveVerificationTest {
         }
         line("\n판정: 공식 종가가 stck_clpr에, 일별 시세(inquire-daily-price) 종가가 시간외 단일가 필드에 있으면 일별 행에 시간외가 섞인 것이다.");
     }
+
+    @Test
+    @Order(6)
+    @DisplayName("K1 — 업종기간별시세(FHKUP03500100) KOSPI 0001 · KOSDAQ 1001 최근 행 · 필드 · 1회 최대 행 수 (B0)")
+    void k1_indexDailyPrices() {
+        line("\n## K1 업종지수 일별 (B0)");
+        LocalDate today = LocalDate.now(KST);
+        line("\n| 업종코드 | rt_cd · msg_cd | output1 이름 · 전일 대비율 | output2 행 수(14일) | 최근 3행 (일자 · 지수) | output2 행 수(200일 요청) |");
+        line("|---|---|---|---|---|---|");
+        Set<String> fields = new java.util.LinkedHashSet<>();
+        for (String code : List.of("0001", "1001")) {
+            JsonNode recent = directGet(INDEX_CHART_PATH, Map.of("t", code, "from", today.minusDays(14).format(DateTimeFormatter.BASIC_ISO_DATE),
+                    "to", today.format(DateTimeFormatter.BASIC_ISO_DATE)), "FHKUP03500100");
+            JsonNode wide = directGet(INDEX_CHART_PATH, Map.of("t", code, "from", today.minusDays(200).format(DateTimeFormatter.BASIC_ISO_DATE),
+                    "to", today.format(DateTimeFormatter.BASIC_ISO_DATE)), "FHKUP03500100");
+            JsonNode rows = recent.path("output2");
+            StringBuilder latest = new StringBuilder();
+            for (int i = 0; i < Math.min(3, rows.size()); i++) {
+                rows.get(i).fieldNames().forEachRemaining(fields::add);
+                latest.append(rows.get(i).path("stck_bsop_date").asText()).append(' ')
+                        .append(rows.get(i).path("bstp_nmix_prpr").asText()).append("; ");
+            }
+            JsonNode out1 = recent.path("output1");
+            line("| " + code + " | " + recent.path("rt_cd").asText() + " · " + recent.path("msg_cd").asText() + " | "
+                    + out1.path("hts_kor_isnm").asText() + " · " + out1.path("bstp_nmix_prdy_ctrt").asText() + " | "
+                    + rows.size() + " | " + latest + " | " + wide.path("output2").size() + " |");
+        }
+        line("\n- output2 필드: " + String.join(", ", fields));
+        line("- 1001 행의 이름이 코스닥이 아니면 KOSDAQ 업종코드를 다시 찾는다(포털 업종코드 표).");
+    }
+
+    @Test
+    @Order(7)
+    @DisplayName("S0 — 샘플 이벤트 후보: 최근 60거래일 중 |전일 대비| ≥ 5%인 날 (KIS_SAMPLE_TICKERS, B0)")
+    void s0_sampleEventCandidates() {
+        line("\n## S0 샘플 이벤트 후보 (B0)");
+        line("- 변동률은 후보 선정용 근사값이다: (종가 − 직전 행 종가) ÷ 직전 행 종가. 기록 · 감지에는 쓰지 않는다");
+        LocalDate today = LocalDate.now(KST);
+        List<String> tickers = List.of(env("KIS_SAMPLE_TICKERS", "000660,086520,001680,035420,122630").split(","));
+        line("\n| 종목 | 이름 | 60거래일 중 ±5% 이상인 날 (일자 변동률) |");
+        line("|---|---|---|");
+        List<String> suggestion = new java.util.ArrayList<>();
+        for (String raw : tickers) {
+            String ticker = raw.trim();
+            JsonNode body = directGet(ITEM_CHART_PATH, Map.of("m", "J", "t", ticker,
+                    "from", today.minusDays(100).format(DateTimeFormatter.BASIC_ISO_DATE),
+                    "to", today.format(DateTimeFormatter.BASIC_ISO_DATE), "p", "D", "adj", "0"), "FHKST03010100");
+            String name = body.path("output1").path("hts_kor_isnm").asText();
+            JsonNode rows = body.path("output2");
+            List<String[]> hits = new java.util.ArrayList<>();
+            for (int i = 0; i + 1 < rows.size() && i < 60; i++) {
+                String close = rows.get(i).path("stck_clpr").asText();
+                String prev = rows.get(i + 1).path("stck_clpr").asText();
+                if (close.isBlank() || prev.isBlank() || new BigDecimal(prev).signum() == 0) continue;
+                BigDecimal rate = new BigDecimal(close).subtract(new BigDecimal(prev)).multiply(BigDecimal.valueOf(100))
+                        .divide(new BigDecimal(prev), 2, RoundingMode.HALF_UP);
+                if (rate.abs().compareTo(BigDecimal.valueOf(5)) >= 0) {
+                    hits.add(new String[]{rows.get(i).path("stck_bsop_date").asText(), rate.toPlainString()});
+                }
+            }
+            line("| " + ticker + " | " + name + " | " + (hits.isEmpty() ? "없음" : String.join(", ",
+                    hits.stream().map(h -> h[0] + " " + h[1] + "%").toList())) + " |");
+            hits.stream().sorted((a, b) -> new BigDecimal(b[1]).abs().compareTo(new BigDecimal(a[1]).abs())).limit(2)
+                    .forEach(h -> suggestion.add(ticker + ":" + name + ":" + LocalDate.parse(h[0], DateTimeFormatter.BASIC_ISO_DATE)));
+        }
+        line("\n종목마다 |변동률| 큰 2날짜로 만든 EVIDENCE_SAMPLE_EVENTS 예시 (그대로 쓰거나 날짜를 바꿔 쓴다):");
+        line("```\n" + String.join(",", suggestion) + "\n```");
+    }
+
+    private static final String INDEX_CHART_PATH = "/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice"
+            + "?FID_COND_MRKT_DIV_CODE=U&FID_INPUT_ISCD={t}&FID_INPUT_DATE_1={from}&FID_INPUT_DATE_2={to}&FID_PERIOD_DIV_CODE=D";
 
     private static String closeAndVolume(JsonNode rows, String date) {
         for (JsonNode r : rows) {

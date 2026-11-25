@@ -1,0 +1,11 @@
+{
+  "_comment": "테스트 전용 더미 값 — 필드 이름 · 시장 코드 형식은 실호출 V2-b(2026-11-16, mket_id_cd = KSQ)와 같게",
+  "rt_cd": "0",
+  "msg_cd": "KIOK0530",
+  "msg1": "조회되었습니다",
+  "output": {
+    "pdno": "000000", "prdt_abrv_name": "테스트코스닥", "scty_grp_id_cd": "ST", "etf_dvsn_cd": "0",
+    "etf_type_cd": "", "tr_stop_yn": "N", "admn_item_yn": "N", "lstg_abol_dt": "",
+    "mket_id_cd": "KSQ", "excg_dvsn_cd": "03"
+  }
+}

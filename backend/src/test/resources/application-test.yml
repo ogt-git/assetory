@@ -14,6 +14,17 @@ spring:
 assetory:
   crypto:
     aes-key: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
+  ecos:
+    # 테스트에서 실제 ECOS를 부르지 않는다 — 실행 환경에 ECOS_API_KEY가 있어도 비운다(키가 없으면 호출 전에 실패)
+    api-key: ""
+  evidence:
+    # 뉴스 보관 기한 삭제 스케줄 끔 — 테스트는 서비스를 직접 부른다
+    news-retention:
+      enabled: false
+  analysis:
+    # PENDING 근거 재수집 스케줄 끔 — 테스트는 EvidenceRetryService를 직접 부른다
+    retry:
+      enabled: false
 
 jwt:
   secret: test-only-jwt-secret-not-for-real-use-0123456789

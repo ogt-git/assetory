@@ -85,6 +85,32 @@ class SwaggerIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("감지 설정 API 3개(GET 목록 · PUT · DELETE)와 응답 스키마가 문서에 있다 (A2)")
+    void apiDocs_detectionSettings() throws Exception {
+        String item = "$.paths['/api/detection-settings/{ruleCode}']";
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/api/detection-settings'].get").exists())
+                .andExpect(jsonPath(item + ".put").exists())
+                .andExpect(jsonPath(item + ".delete").exists())
+                .andExpect(jsonPath("$.components.schemas.DetectionSettingResponse.properties.appliedThreshold").exists())
+                .andExpect(jsonPath("$.components.schemas.DetectionSettingUpdateRequest.properties.excludedTickers").exists());
+    }
+
+    @Test
+    @DisplayName("자산 기록 상세의 이벤트 항목 스키마 = SnapshotDetailEventItem (A6, AGENTS 6장 이름 규칙)")
+    void apiDocs_snapshotDetailEventItem() throws Exception {
+        String schemas = "$.components.schemas";
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(schemas + ".SnapshotDetailEventItem.properties.changeRate").exists())
+                .andExpect(jsonPath(schemas + ".SnapshotDetailEventItem.properties.backfilled").exists())
+                .andExpect(jsonPath(schemas + ".SnapshotDetailResponse.properties.events.items.$ref")
+                        .value("#/components/schemas/SnapshotDetailEventItem"))
+                .andExpect(jsonPath(schemas + ".EventItem").doesNotExist());
+    }
+
+    @Test
     @DisplayName("켜져 있으면 Swagger UI 화면이 인증 없이 열린다")
     void swaggerUi_enabled() throws Exception {
         mockMvc.perform(get("/swagger-ui/index.html"))

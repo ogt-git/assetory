@@ -47,6 +47,19 @@ export function formatRate(
   return `${percent > 0 ? '+' : '-'}${fixed}%`
 }
 
+/**
+ * 기준값 + 단위 — 뒤의 0 없이(최대 소수 4자리). 표시만 바꾸고 값은 그대로.
+ * 예: (5, '%') -> "5%", (30, '일') -> "30일", (2.5, '%') -> "2.5%". 단위가 없으면 숫자만
+ */
+export function formatThreshold(
+  value: number | null | undefined,
+  unit?: string | null,
+): string {
+  if (isInvalidNumber(value)) return PLACEHOLDER
+  const text = value.toLocaleString('ko-KR', { maximumFractionDigits: 4 })
+  return unit ? `${text}${unit}` : text
+}
+
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
 
 /**
